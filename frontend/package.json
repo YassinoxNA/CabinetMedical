@@ -91,6 +91,10 @@
       {
         "from": "build/update-channel.json",
         "to": "config/update-channel.json"
+      },
+      {
+        "from": "build/update-build.json",
+        "to": "config/update-build.json"
       }
     ],
     "win": {

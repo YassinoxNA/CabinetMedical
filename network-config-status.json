@@ -1,0 +1,10 @@
+﻿{
+    "networkCategory":  "Private",
+    "profile":  "Private",
+    "localPort":  "8080",
+    "success":  true,
+    "remoteAddress":  [
+                          "LocalSubnet"
+                      ],
+    "enabled":  true
+}

@@ -22,8 +22,11 @@ type SoftwareUpdateStatus = {
 };
 type SoftwareUpdateManifest = {
   version: string;
+  build?: number;
   url: string;
   sha256: string;
+  size?: number;
+  databaseMigration?: boolean;
   notes?: string;
 };
 let softwareUpdateStatus: SoftwareUpdateStatus = {
@@ -104,7 +107,15 @@ async function seedCabinetCredentials() {
 
 function registerSecureStorage() {
   ipcMain.handle("software-update:status", () => softwareUpdateStatus);
-  ipcMain.handle("software-update:check", () => checkForSoftwareUpdate(true));
+  ipcMain.handle("software-update:check", async () => {
+    publishSoftwareUpdateStatus({
+      state: "checking",
+      currentVersion: app.getVersion(),
+      message: "Vérification de la mise à jour en cours…"
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    return checkForSoftwareUpdate(true);
+  });
   ipcMain.handle("secure-storage:get", async (_event, key: string) => {
     if (!allowedSecureKeys.has(key)) return null;
     const store = await readSecureStore();
@@ -343,6 +354,38 @@ async function configuredUpdateManifestUrl() {
   }
 }
 
+function installedUpdateBuildPath() {
+  return path.join(app.getPath("userData"), "installed-update-build.json");
+}
+
+async function installedUpdateBuild() {
+  let packagedBuild = 0;
+  if (app.isPackaged) {
+    try {
+      const value = JSON.parse(await fs.readFile(path.join(process.resourcesPath, "config", "update-build.json"), "utf8")) as { build?: number };
+      packagedBuild = Number.isFinite(value.build) ? Number(value.build) : 0;
+    } catch {
+      // Les anciennes installations n'avaient pas encore de numero de build.
+    }
+  }
+  try {
+    const value = JSON.parse(await fs.readFile(installedUpdateBuildPath(), "utf8")) as { build?: number };
+    const rememberedBuild = Number.isFinite(value.build) ? Number(value.build) : 0;
+    return Math.max(packagedBuild, rememberedBuild);
+  } catch {
+    return packagedBuild;
+  }
+}
+
+async function rememberInstalledUpdate(manifest: SoftwareUpdateManifest) {
+  if (!Number.isFinite(manifest.build)) return;
+  await fs.writeFile(installedUpdateBuildPath(), JSON.stringify({
+    version: manifest.version,
+    build: Number(manifest.build),
+    installedAt: new Date().toISOString()
+  }), "utf8");
+}
+
 async function createPreUpdateBackup(version: string) {
   if (!activeDatabaseConfig) throw new Error("La base locale n'est pas prête pour la sauvegarde de sécurité.");
   const postgresBin = path.join(process.resourcesPath, "postgres", "bin");
@@ -374,6 +417,9 @@ async function downloadVerifiedInstaller(manifest: SoftwareUpdateManifest) {
   const response = await fetch(downloadUrl, { redirect: "follow", signal: AbortSignal.timeout(900000) });
   if (!response.ok || !response.body) throw new Error(`Téléchargement impossible (HTTP ${response.status}).`);
   const total = Number(response.headers.get("content-length") || 0);
+  if (manifest.size && total && manifest.size !== total) {
+    throw new Error("La taille du fichier ne correspond pas au manifeste de mise a jour.");
+  }
   if (total > 600 * 1024 * 1024) throw new Error("Le fichier de mise à jour est trop volumineux.");
   const directory = path.join(app.getPath("temp"), "cabinet-dentaire-updates");
   await fs.mkdir(directory, { recursive: true });
@@ -404,6 +450,10 @@ async function downloadVerifiedInstaller(manifest: SoftwareUpdateManifest) {
     await file.close();
   }
   const actualHash = hash.digest("hex").toUpperCase();
+  if (manifest.size && received !== manifest.size) {
+    await fs.rm(installer, { force: true });
+    throw new Error("Le fichier de mise a jour telecharge est incomplet.");
+  }
   if (actualHash !== manifest.sha256.toUpperCase()) {
     await fs.rm(installer, { force: true });
     throw new Error("Le contrôle de sécurité SHA-256 du fichier téléchargé a échoué.");
@@ -412,7 +462,8 @@ async function downloadVerifiedInstaller(manifest: SoftwareUpdateManifest) {
 }
 
 async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
-  if (lastPromptedUpdate === manifest.version) return;
+  const updateIdentity = `${manifest.version}-${manifest.build || 0}`;
+  if (lastPromptedUpdate === updateIdentity) return;
   const options = {
     type: "info" as const,
     title: "Mise à jour Cabinet Dentaire",
@@ -425,7 +476,7 @@ async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
   };
   const choice = mainWindow ? await dialog.showMessageBox(mainWindow, options) : await dialog.showMessageBox(options);
   if (choice.response !== 0) return;
-  lastPromptedUpdate = manifest.version;
+  lastPromptedUpdate = updateIdentity;
   try {
     const installer = await downloadVerifiedInstaller(manifest);
     publishSoftwareUpdateStatus({
@@ -433,6 +484,7 @@ async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
       progress: 100, message: "Création de la sauvegarde avant installation…"
     });
     await createPreUpdateBackup(manifest.version);
+    await rememberInstalledUpdate(manifest);
     await appendDesktopLog(`Installation de la mise à jour ${manifest.version}: ${installer}`);
     const child = spawn(installer, [], { detached: true, stdio: "ignore", windowsHide: false });
     child.unref();
@@ -526,6 +578,7 @@ async function checkOfflineInstaller(currentVersion: string, detectedInstaller?:
 
 async function performSoftwareUpdateCheck(interactive: boolean) {
   const currentVersion = app.getVersion();
+  const currentBuild = await installedUpdateBuild();
   const manifestUrl = await configuredUpdateManifestUrl();
   if (!manifestUrl) {
     if (interactive) return checkOfflineInstaller(currentVersion);
@@ -543,10 +596,21 @@ async function performSoftwareUpdateCheck(interactive: boolean) {
       headers: { "accept": "application/json", "user-agent": `Cabinet-Dentaire/${currentVersion}` },
       signal: AbortSignal.timeout(15000)
     });
+    if (response.status === 404) {
+      return publishSoftwareUpdateStatus({
+        state: "up-to-date",
+        currentVersion,
+        message: "Aucune mise à jour disponible pour le moment."
+      });
+    }
     if (!response.ok) throw new Error(`Serveur de mise à jour indisponible (HTTP ${response.status}).`);
     const manifest = await response.json() as SoftwareUpdateManifest;
     if (!manifest?.version || !manifest?.url || !manifest?.sha256) throw new Error("Le fichier de mise à jour publié est incomplet.");
-    if (compareVersions(manifest.version, currentVersion) <= 0) {
+    const versionComparison = compareVersions(manifest.version, currentVersion);
+    const newerBuildOfSameVersion = versionComparison === 0
+      && Number.isFinite(manifest.build)
+      && Number(manifest.build) > currentBuild;
+    if (versionComparison < 0 || (versionComparison === 0 && !newerBuildOfSameVersion)) {
       const status = publishSoftwareUpdateStatus({ state: "up-to-date", currentVersion, message: `Le logiciel est à jour (version ${currentVersion}).` });
       if (interactive) dialog.showMessageBox({ type: "info", title: "Mises à jour", message: status.message, buttons: ["OK"] });
       return status;
@@ -560,10 +624,6 @@ async function performSoftwareUpdateCheck(interactive: boolean) {
   } catch (error) {
     const status = publishSoftwareUpdateStatus({ state: "error", currentVersion, message: errorMessage(error) });
     await appendDesktopLog(`Vérification mise à jour impossible: ${status.message}`);
-    if (interactive) dialog.showMessageBox({
-      type: "warning", title: "Mises à jour", message: "La vérification est momentanément indisponible.",
-      detail: "Le logiciel continue de fonctionner normalement. Réessayez lorsque la connexion Internet est disponible.", buttons: ["OK"]
-    });
     return status;
   }
 }

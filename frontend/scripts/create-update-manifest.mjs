@@ -13,10 +13,15 @@ if (!downloadUrl || !downloadUrl.startsWith("https://")) {
 }
 
 const installer = await fs.readFile(installerPath);
+const installerDetails = await fs.stat(installerPath);
+const packagedBuild = JSON.parse(await fs.readFile(new URL("../build/update-build.json", import.meta.url), "utf8"));
 const manifest = {
   version: packageJson.version,
+  build: Number(process.env.CABINET_BUILD_NUMBER || packagedBuild.build),
   url: downloadUrl,
   sha256: createHash("sha256").update(installer).digest("hex").toUpperCase(),
+  size: installerDetails.size,
+  databaseMigration: process.env.CABINET_DATABASE_MIGRATION === "true",
   notes: "Mise à jour Cabinet Dentaire",
   publishedAt: new Date().toISOString()
 };

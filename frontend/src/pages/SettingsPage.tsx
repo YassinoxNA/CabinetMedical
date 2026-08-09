@@ -2,7 +2,7 @@ import {
   BriefcaseBusiness, Building2, CalendarClock, CheckCircle2, Clock3,
   Download, FileSpreadsheet, HardDrive, DatabaseBackup, AlertTriangle, LockKeyhole,
   Languages, Mail, MapPin, Phone, RefreshCw, Save, ShieldCheck, Usb, UserRound,
-  FolderOpen, Info, Plus
+  FolderOpen, Info, Plus, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import cabinetLogo from "../assets/dental-sabri-logo.png";
@@ -17,7 +17,7 @@ export interface Setting {
   valueType: string;
 }
 
-type Tab = "cabinet" | "schedule" | "export" | "backup";
+type Tab = "cabinet" | "schedule" | "export" | "backup" | "update";
 
 interface BackupRecord {
   id: string;
@@ -74,6 +74,18 @@ export function SettingsPage() {
   const [backupDirectory, setBackupDirectory] = useState<string | null>(null);
   const [localBackupDirectory, setLocalBackupDirectory] = useState<string | null>(null);
   const [backupHostComputer, setBackupHostComputer] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<SoftwareUpdateStatus | null>(null);
+
+  useEffect(() => {
+    if (!window.desktop) return;
+    void window.desktop.getSoftwareUpdateStatus().then(setUpdateStatus);
+    return window.desktop.onSoftwareUpdateStatus(setUpdateStatus);
+  }, []);
+
+  async function checkSoftwareUpdate() {
+    if (!window.desktop) return;
+    setUpdateStatus(await window.desktop.checkForSoftwareUpdate());
+  }
 
   async function load() {
     const stored = await api.get<Setting[]>("/settings");
@@ -283,10 +295,12 @@ export function SettingsPage() {
         <button className={ui(tab === "schedule" ? "active" : "")} onClick={() => setTab("schedule")}><CalendarClock/> {text("Horaires du docteur", "أوقات عمل الطبيب")}</button>
         <button className={ui(tab === "export" ? "active" : "")} onClick={() => setTab("export")}><FileSpreadsheet/> {text("Export Excel", "تصدير Excel")}</button>
         <button className={ui(tab === "backup" ? "active" : "")} onClick={() => setTab("backup")}><DatabaseBackup/> {text("Sauvegardes", "النسخ الاحتياطية")}</button>
+        <button className={ui(tab === "update" ? "active" : "")} onClick={() => setTab("update")}><Download/> {text("Mises à jour", "التحديثات")}</button>
       </aside>
 
       <section className={`${ui("panel settings-panel")} min-h-[calc(100vh-390px)]`}>
-        {tab === "backup" ? <BackupSettingsRedesigned busy={busy} backups={backups} directory={backupDirectory} localDirectory={localBackupDirectory}
+        {tab === "update" ? <SoftwareUpdateSettings status={updateStatus} check={checkSoftwareUpdate}/>
+          : tab === "backup" ? <BackupSettingsRedesigned busy={busy} backups={backups} directory={backupDirectory} localDirectory={localBackupDirectory}
             localServer={backupHostComputer} createBackup={createBackup} chooseDirectory={chooseBackupDirectory} openDirectory={openBackupDirectory} restoreBackup={restoreBackup} copyBackup={copyBackup}/>
           : tab === "export" ? <ExportSettings busy={busy} exportExcel={exportExcel}/>
           : tab === "schedule" ? <>
@@ -609,9 +623,15 @@ function BackupSettingsRedesigned({ busy, backups, directory, localDirectory, lo
   copyBackup: (backup: BackupRecord) => Promise<void>;
 }) {
   const { text } = useLanguage();
-  const [showAll, setShowAll] = useState(false);
+  const [page, setPage] = useState(0);
+  const pageSize = 3;
+  const totalPages = Math.max(1, Math.ceil(backups.length / pageSize));
   const activeDirectory = directory || localDirectory;
-  const rows = showAll ? backups : backups.slice(0, 3);
+  const rows = backups.slice(page * pageSize, (page + 1) * pageSize);
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages - 1));
+  }, [totalPages]);
   const formatSize = (bytes: number | null) => bytes == null ? "—" : `${(bytes / 1024 / 1024).toFixed(1).replace(".", ",")} Mo`;
   const statusLabel = (status: BackupRecord["status"]) => status === "REUSSIE"
     ? text("Réussie + copie externe", "ناجحة + نسخة خارجية")
@@ -670,11 +690,17 @@ function BackupSettingsRedesigned({ busy, backups, directory, localDirectory, lo
         </table>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 p-4">
-        {backups.length > 3 ? <button className={ui("button ghost")} onClick={() => setShowAll((value) => !value)}>
-          {showAll ? text("Afficher les 3 dernières", "عرض آخر 3 نسخ") : text("Voir toutes les sauvegardes", "عرض جميع النسخ")}
-        </button> : <span className="px-3 text-xs font-semibold text-slate-500">{text(
-          "Toutes les sauvegardes sont déjà affichées.", "جميع النسخ الاحتياطية معروضة بالفعل."
-        )}</span>}
+        <nav className="flex items-center gap-2" aria-label={text("Pagination des sauvegardes", "صفحات النسخ الاحتياطية")}>
+          <button className={ui("icon-button")} disabled={page === 0}
+            onClick={() => setPage((current) => Math.max(0, current - 1))}
+            title={text("Page précédente", "الصفحة السابقة")}><ChevronLeft size={17}/></button>
+          <span className="min-w-20 text-center text-xs font-bold text-slate-600">
+            {text("Page", "صفحة")} {page + 1} / {totalPages}
+          </span>
+          <button className={ui("icon-button")} disabled={page >= totalPages - 1}
+            onClick={() => setPage((current) => Math.min(totalPages - 1, current + 1))}
+            title={text("Page suivante", "الصفحة التالية")}><ChevronRight size={17}/></button>
+        </nav>
         <div className="flex flex-wrap items-center gap-2">
           <button className={ui("button ghost")} disabled={busy !== ""} onClick={() => void restoreBackup()}>
             <RefreshCw size={17}/>{busy === "restore" ? text("Restauration…", "جارٍ الاسترجاع…") : text("Restaurer une sauvegarde", "استرجاع نسخة احتياطية")}

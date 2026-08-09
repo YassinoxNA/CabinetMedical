@@ -66,6 +66,7 @@ function ProtectedLayout() {
 }
 export default function App() {
     const restore = useAuthStore((state) => state.restore);
+    const logout = useAuthStore((state) => state.logout);
     const authLoading = useAuthStore((state) => state.loading);
     const [minimumLoadingElapsed, setMinimumLoadingElapsed] = useState(false);
 
@@ -74,6 +75,12 @@ export default function App() {
         void restore();
         return () => window.clearTimeout(timer);
     }, [restore]);
+
+    useEffect(() => {
+        const handleExpiredSession = () => void logout();
+        window.addEventListener("cabinet:session-expired", handleExpiredSession);
+        return () => window.removeEventListener("cabinet:session-expired", handleExpiredSession);
+    }, [logout]);
 
     if (authLoading || !minimumLoadingElapsed) {
         return <ApplicationLoadingScreen />;

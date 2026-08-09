@@ -87,6 +87,34 @@ async function removeToken(key: SecureKey) {
 }
 
 export class ApiClient {
+  private reauthentication: Promise<boolean> | null = null;
+
+  private async reauthenticate(): Promise<boolean> {
+    if (this.reauthentication) return this.reauthentication;
+
+    this.reauthentication = (async () => {
+      const credentials = await this.getRememberedCredentials();
+      if (!credentials) return false;
+
+      try {
+        const response = await fetch(`${apiUrl()}/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(credentials)
+        });
+        if (!response.ok) return false;
+        await this.saveTokens(await response.json() as AuthResponse);
+        return true;
+      } catch {
+        return false;
+      }
+    })().finally(() => {
+      this.reauthentication = null;
+    });
+
+    return this.reauthentication;
+  }
+
   private async request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
     const token = await getToken("accessToken");
     const headers = new Headers(options.headers);
@@ -103,8 +131,12 @@ export class ApiClient {
         message: "Le serveur du cabinet ne répond pas correctement."
       } as ApiError;
     }
-    if (response.status === 401 && retry && await getToken("refreshToken")) {
-      if (await this.refresh()) return this.request<T>(path, options, false);
+    if (response.status === 401 && retry && !path.startsWith("/auth/")) {
+      const refreshed = await getToken("refreshToken") ? await this.refresh() : false;
+      if (refreshed || await this.reauthenticate()) return this.request<T>(path, options, false);
+
+      await this.clearTokens();
+      window.dispatchEvent(new CustomEvent("cabinet:session-expired"));
     }
     if (!response.ok) {
       const error = (await response.json().catch(() => ({
