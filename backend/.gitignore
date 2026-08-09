@@ -1,0 +1,13 @@
+.env
+*.local
+target/
+node_modules/
+dist/
+data/
+backups/
+*.log
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db

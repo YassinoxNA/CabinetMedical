@@ -1,0 +1,116 @@
+{
+  "name": "cabinet-dentaire-desktop",
+  "version": "1.7.3",
+  "description": "Application desktop locale de gestion d'un cabinet dentaire",
+  "author": "Cabinet Dentaire",
+  "private": true,
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite\" \"wait-on http://127.0.0.1:5173 && electron .\"",
+    "build": "tsc -b && vite build && tsc -p electron/tsconfig.json",
+    "preview": "vite preview",
+    "desktop": "electron .",
+    "dist:win": "npm run build && electron-builder --win nsis",
+    "update:manifest": "node scripts/create-update-manifest.mjs"
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~5.7.2",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "ma.cabinetdentaire.desktop",
+    "productName": "Cabinet Dentaire",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/target/cabinet-dentaire-backend-0.1.0-SNAPSHOT.jar",
+        "to": "backend/cabinet-dentaire-backend.jar"
+      },
+      {
+        "from": "runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "postgres",
+        "to": "postgres"
+      },
+      {
+        "from": "runtime/bin/vcruntime140.dll",
+        "to": "postgres/bin/vcruntime140.dll"
+      },
+      {
+        "from": "runtime/bin/vcruntime140_1.dll",
+        "to": "postgres/bin/vcruntime140_1.dll"
+      },
+      {
+        "from": "runtime/bin/msvcp140.dll",
+        "to": "postgres/bin/msvcp140.dll"
+      },
+      {
+        "from": "runtime/bin/ucrtbase.dll",
+        "to": "postgres/bin/ucrtbase.dll"
+      },
+      {
+        "from": ".env",
+        "to": "config/initial-accounts.env"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "branding/icon.png"
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "branding/icon.ico"
+      },
+      {
+        "from": "build/update-channel.json",
+        "to": "config/update-channel.json"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "Cabinet-Dentaire-Setup-${version}-RESEAU.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "include": "build/installer.nsh",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cabinet Dentaire",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  }
+}

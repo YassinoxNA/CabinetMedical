@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="DentalCabinetApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <module name="cabinet-dentaire-backend" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="ma.cabinetdentaire.DentalCabinetApplication" />
+    <option name="VM_PARAMETERS" value="--enable-native-access=ALL-UNNAMED" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
