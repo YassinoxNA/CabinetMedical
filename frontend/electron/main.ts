@@ -442,6 +442,14 @@ async function downloadVerifiedInstaller(manifest: SoftwareUpdateManifest) {
   return installer;
 }
 
+async function launchInstallerWithWindows(installer: string) {
+  // ShellExecute (utilise par shell.openPath) gere correctement la demande UAC
+  // requise par notre installateur NSIS per-machine. Un spawn direct peut etre
+  // refuse par Windows avec EACCES et produire une erreur JavaScript non geree.
+  const launchError = await shell.openPath(installer);
+  if (launchError) throw new Error(`Windows n'a pas pu lancer l'installation : ${launchError}`);
+}
+
 async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
   const updateIdentity = `${manifest.version}-${manifest.build || 0}`;
   if (lastPromptedUpdate === updateIdentity) return;
@@ -466,8 +474,7 @@ async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
     });
     await createPreUpdateBackup(manifest.version);
     await appendDesktopLog(`Installation de la mise à jour ${manifest.version}: ${installer}`);
-    const child = spawn(installer, [], { detached: true, stdio: "ignore", windowsHide: false });
-    child.unref();
+    await launchInstallerWithWindows(installer);
     setTimeout(() => app.quit(), 1200);
   } catch (error) {
     const message = errorMessage(error);
@@ -545,8 +552,7 @@ async function checkOfflineInstaller(currentVersion: string, detectedInstaller?:
   try {
     publishSoftwareUpdateStatus({ state: "ready", currentVersion, availableVersion: version, message: "Création de la sauvegarde avant installation…" });
     await createPreUpdateBackup(version);
-    const child = spawn(installer, [], { detached: true, stdio: "ignore", windowsHide: false });
-    child.unref();
+    await launchInstallerWithWindows(installer);
     setTimeout(() => app.quit(), 1200);
     return status;
   } catch (error) {
