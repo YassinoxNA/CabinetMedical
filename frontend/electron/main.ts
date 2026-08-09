@@ -354,10 +354,6 @@ async function configuredUpdateManifestUrl() {
   }
 }
 
-function installedUpdateBuildPath() {
-  return path.join(app.getPath("userData"), "installed-update-build.json");
-}
-
 async function installedUpdateBuild() {
   let packagedBuild = 0;
   if (app.isPackaged) {
@@ -368,22 +364,7 @@ async function installedUpdateBuild() {
       // Les anciennes installations n'avaient pas encore de numero de build.
     }
   }
-  try {
-    const value = JSON.parse(await fs.readFile(installedUpdateBuildPath(), "utf8")) as { build?: number };
-    const rememberedBuild = Number.isFinite(value.build) ? Number(value.build) : 0;
-    return Math.max(packagedBuild, rememberedBuild);
-  } catch {
-    return packagedBuild;
-  }
-}
-
-async function rememberInstalledUpdate(manifest: SoftwareUpdateManifest) {
-  if (!Number.isFinite(manifest.build)) return;
-  await fs.writeFile(installedUpdateBuildPath(), JSON.stringify({
-    version: manifest.version,
-    build: Number(manifest.build),
-    installedAt: new Date().toISOString()
-  }), "utf8");
+  return packagedBuild;
 }
 
 async function createPreUpdateBackup(version: string) {
@@ -484,7 +465,6 @@ async function askToInstallUpdate(manifest: SoftwareUpdateManifest) {
       progress: 100, message: "Création de la sauvegarde avant installation…"
     });
     await createPreUpdateBackup(manifest.version);
-    await rememberInstalledUpdate(manifest);
     await appendDesktopLog(`Installation de la mise à jour ${manifest.version}: ${installer}`);
     const child = spawn(installer, [], { detached: true, stdio: "ignore", windowsHide: false });
     child.unref();
