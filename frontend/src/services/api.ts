@@ -5,8 +5,9 @@ const DEFAULT_SERVER_URL = import.meta.env.DEV
   : "http://127.0.0.1:8080";
 const SERVER_URL_STORAGE_KEY = "cabinet.serverUrl";
 const SERVER_DISCOVERY_VERSION_KEY = "cabinet.serverDiscoveryVersion";
-// Force une nouvelle detection apres la correction qui ignore Hyper-V/WSL.
-const SERVER_DISCOVERY_VERSION = "1.7.3-physical-lan";
+// Force une nouvelle detection apres la correction qui donne toujours la
+// priorite au serveur LAN contenant les donnees partagees.
+const SERVER_DISCOVERY_VERSION = "1.7.3-shared-data-v2";
 type SecureKey = "accessToken" | "refreshToken" | "cabinetUsername" | "cabinetPassword";
 
 export function normalizeServerUrl(value: string) {
@@ -53,10 +54,14 @@ export async function ensureAutomaticServerConnection() {
   }
   const saved = localStorage.getItem(SERVER_URL_STORAGE_KEY);
   const detected = await window.desktop?.getCabinetServerCandidates() ?? [DEFAULT_SERVER_URL];
-  const hotspotDetected = detected.some((candidate) => candidate.includes("192.168.137.1"));
-  const candidates = [...new Set(hotspotDetected
-    ? [...detected.map(normalizeServerUrl), ...(saved ? [normalizeServerUrl(saved)] : [])]
-    : [...(saved ? [normalizeServerUrl(saved)] : []), ...detected.map(normalizeServerUrl)])];
+  // Electron classe deja les serveurs par nombre de patients puis par
+  // anciennete. Tester cette liste avant l'adresse memorisee evite qu'un PC
+  // secondaire reste bloque sur sa base locale vide apres une restauration
+  // effectuee sur le PC principal.
+  const candidates = [...new Set([
+    ...detected.map(normalizeServerUrl),
+    ...(saved ? [normalizeServerUrl(saved)] : [])
+  ])];
   for (const candidate of candidates) {
     try {
       if (await testServerConnection(candidate)) {
