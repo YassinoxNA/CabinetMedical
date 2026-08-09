@@ -7,8 +7,11 @@ const SERVER_URL_STORAGE_KEY = "cabinet.serverUrl";
 const SERVER_DISCOVERY_VERSION_KEY = "cabinet.serverDiscoveryVersion";
 // Force une nouvelle detection apres la correction qui donne toujours la
 // priorite au serveur LAN contenant les donnees partagees.
-const SERVER_DISCOVERY_VERSION = "1.7.3-shared-data-v2";
+const SERVER_DISCOVERY_VERSION = "1.7.3-shared-data-v3";
+const SERVER_REDISCOVERY_INTERVAL_MS = 30_000;
 type SecureKey = "accessToken" | "refreshToken" | "cabinetUsername" | "cabinetPassword";
+let lastServerDiscoveryAt = 0;
+let serverRediscovery: Promise<string> | null = null;
 
 export function normalizeServerUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
@@ -75,6 +78,19 @@ export async function ensureAutomaticServerConnection() {
   throw new Error("CABINET_SERVER_NOT_FOUND");
 }
 
+async function rediscoverCabinetServerIfNeeded() {
+  if (import.meta.env.DEV || !window.desktop) return getServerUrl();
+  const now = Date.now();
+  if (now - lastServerDiscoveryAt < SERVER_REDISCOVERY_INTERVAL_MS) return getServerUrl();
+  if (serverRediscovery) return serverRediscovery;
+
+  lastServerDiscoveryAt = now;
+  serverRediscovery = ensureAutomaticServerConnection().finally(() => {
+    serverRediscovery = null;
+  });
+  return serverRediscovery;
+}
+
 function apiUrl() {
   return `${getServerUrl()}/api/v1`;
 }
@@ -121,6 +137,11 @@ export class ApiClient {
   }
 
   private async request<T>(path: string, options: RequestInit = {}, retry = true): Promise<T> {
+    // Un poste peut avoir demarre avant que le PC principal restaure ses
+    // donnees. Refaire periodiquement la detection permet aux ecrans et au
+    // bouton Actualiser de rejoindre automatiquement la base la plus complete,
+    // sans reinstallateur, cle USB ni adresse IP a saisir.
+    await rediscoverCabinetServerIfNeeded().catch(() => getServerUrl());
     const token = await getToken("accessToken");
     const headers = new Headers(options.headers);
     if (!(options.body instanceof FormData)) headers.set("Content-Type", "application/json");

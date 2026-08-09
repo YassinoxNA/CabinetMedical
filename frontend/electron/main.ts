@@ -266,7 +266,10 @@ function registerSecureStorage() {
       const url = `http://${host}:8080`;
       try {
         const response = await fetch(`${url}/api/v1/system/setup-status`, {
-          signal: AbortSignal.timeout(700)
+          // Le premier appel au serveur Spring/PostgreSQL d'un autre poste peut
+          // etre lent sur le Wi-Fi du cabinet. 700 ms faisait ignorer a tort le
+          // PC principal et laissait le deuxieme poste sur sa base locale vide.
+          signal: AbortSignal.timeout(2000)
         });
         if (!response.ok) return null;
         const status = await response.json() as { installedAt?: number; patientCount?: number };
