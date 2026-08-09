@@ -1,6 +1,9 @@
 name: Publier une mise a jour Cabinet Dentaire
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       version:
@@ -20,8 +23,8 @@ jobs:
   build-and-release:
     runs-on: windows-latest
     env:
-      RELEASE_VERSION: ${{ inputs.version }}
-      CABINET_DATABASE_MIGRATION: ${{ inputs.database_migration }}
+      RELEASE_VERSION: ${{ inputs.version || '1.7.3' }}
+      CABINET_DATABASE_MIGRATION: ${{ inputs.database_migration || 'false' }}
 
     steps:
       - name: Recuperer le projet
