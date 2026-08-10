@@ -1,9 +1,9 @@
 import { ui } from "../styles";
-import { Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FlaskConical, LayoutDashboard, ClipboardCheck, LogOut, Menu, ReceiptText, Settings, ShieldCheck, Users } from "lucide-react";
+import { Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FlaskConical, LayoutDashboard, ClipboardCheck, LogOut, Menu, ReceiptText, Settings, ShieldAlert, ShieldCheck, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
-import { api } from "../services/api";
+import { api, isEmergencyReadOnlyMode } from "../services/api";
 import type { AuditLog, Page } from "../types";
 import cabinetLogo from "../assets/dental-sabri-logo.png";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -23,6 +23,7 @@ export function AppLayout() {
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const [doctorActivity, setDoctorActivity] = useState<AuditLog[]>([]);
     const [lastReadAt, setLastReadAt] = useState(() => localStorage.getItem("cabinet.doctorActivityLastRead") || "");
+    const [emergencyMode, setEmergencyMode] = useState(isEmergencyReadOnlyMode);
     const { user, logout } = useAuthStore();
     const location = useLocation();
     const { isArabic, locale, text } = useLanguage();
@@ -59,6 +60,11 @@ export function AppLayout() {
                         : location.pathname.startsWith("/laboratories") ? text("Laboratoires", "المختبرات")
                             : location.pathname.startsWith("/settings") ? text("Paramètres", "الإعدادات")
                                         : text("Cabinet Dentaire", "عيادة الأسنان");
+    useEffect(() => {
+        const updateEmergencyMode = (event: Event) => setEmergencyMode(Boolean((event as CustomEvent<boolean>).detail));
+        window.addEventListener("cabinet:emergency-mode", updateEmergencyMode);
+        return () => window.removeEventListener("cabinet:emergency-mode", updateEmergencyMode);
+    }, []);
     useEffect(() => {
         if (user?.role !== "ASSISTANTE") {
             setDoctorActivity([]);
@@ -206,6 +212,13 @@ export function AppLayout() {
             </div>
           </div>
         </header>
+        {emergencyMode && <div role="status" className="mx-10 mt-5 flex items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-900 max-[900px]:mx-5">
+          <ShieldAlert className="size-5 shrink-0"/>
+          <span>{text(
+            "Mode secours : le PC principal est indisponible. Vous pouvez consulter les donnees; les modifications sont bloquees jusqu'a son retour.",
+            "وضع الطوارئ: الحاسوب الرئيسي غير متاح. يمكن عرض البيانات فقط، والتعديلات متوقفة إلى حين عودته."
+          )}</span>
+        </div>}
         <section className={ui("page-content")}><Outlet /></section>
       </main>
     </div>);

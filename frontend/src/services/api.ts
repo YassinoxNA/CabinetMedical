@@ -4,6 +4,8 @@ const DEFAULT_SERVER_URL = import.meta.env.DEV
   ? "http://127.0.0.1:8081"
   : "http://127.0.0.1:8080";
 const SERVER_URL_STORAGE_KEY = "cabinet.serverUrl";
+const PRIMARY_SERVER_URL_STORAGE_KEY = "cabinet.primaryServerUrl";
+const EMERGENCY_MODE_STORAGE_KEY = "cabinet.emergencyReadOnly";
 const SERVER_DISCOVERY_VERSION_KEY = "cabinet.serverDiscoveryVersion";
 // Force une nouvelle detection apres la correction qui donne toujours la
 // priorite au serveur LAN contenant les donnees partagees.
@@ -12,6 +14,8 @@ const SERVER_REDISCOVERY_INTERVAL_MS = 30_000;
 type SecureKey = "accessToken" | "refreshToken" | "cabinetUsername" | "cabinetPassword";
 let lastServerDiscoveryAt = 0;
 let serverRediscovery: Promise<string> | null = null;
+let emergencyMirrorTimer: number | null = null;
+let emergencyMirrorForcePending = false;
 
 export function normalizeServerUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "").replace(/\/api\/v1$/i, "");
@@ -25,6 +29,15 @@ export function getServerUrl() {
 
 export function setServerUrl(value: string) {
   localStorage.setItem(SERVER_URL_STORAGE_KEY, normalizeServerUrl(value));
+}
+
+export function isEmergencyReadOnlyMode() {
+  return localStorage.getItem(EMERGENCY_MODE_STORAGE_KEY) === "true";
+}
+
+function setEmergencyReadOnlyMode(active: boolean) {
+  localStorage.setItem(EMERGENCY_MODE_STORAGE_KEY, String(active));
+  window.dispatchEvent(new CustomEvent("cabinet:emergency-mode", { detail: active }));
 }
 
 export function isUsingLocalServer() {
@@ -56,26 +69,97 @@ export async function ensureAutomaticServerConnection() {
     localStorage.setItem(SERVER_DISCOVERY_VERSION_KEY, SERVER_DISCOVERY_VERSION);
   }
   const saved = localStorage.getItem(SERVER_URL_STORAGE_KEY);
+  const primary = localStorage.getItem(PRIMARY_SERVER_URL_STORAGE_KEY);
   const detected = await window.desktop?.getCabinetServerCandidates() ?? [DEFAULT_SERVER_URL];
   // Electron classe deja les serveurs par nombre de patients puis par
   // anciennete. Tester cette liste avant l'adresse memorisee evite qu'un PC
   // secondaire reste bloque sur sa base locale vide apres une restauration
   // effectuee sur le PC principal.
   const candidates = [...new Set([
+    ...(primary ? [normalizeServerUrl(primary)] : []),
     ...detected.map(normalizeServerUrl),
     ...(saved ? [normalizeServerUrl(saved)] : [])
   ])];
-  for (const candidate of candidates) {
+  const classified = await Promise.all(candidates.map(async (url) => ({
+    url,
+    local: await (window.desktop?.isCabinetServerLocal(url) ?? Promise.resolve(isLocalServerUrl(url)))
+  })));
+  const tryCandidate = async (candidate: string, rememberPrimary: boolean) => {
     try {
       if (await testServerConnection(candidate)) {
         setServerUrl(candidate);
+        if (rememberPrimary && !isLocalServerUrl(candidate)) {
+          localStorage.setItem(PRIMARY_SERVER_URL_STORAGE_KEY, candidate);
+        }
+        setEmergencyReadOnlyMode(false);
         return candidate;
       }
     } catch {
-      // Essayer automatiquement l'adresse suivante.
+      // Le candidat suivant sera essaye.
+    }
+    return null;
+  };
+
+  // Lors de la toute premiere installation, respecter le classement Electron
+  // (base la plus complete, puis installation la plus ancienne). Cela permet
+  // aussi au vrai PC principal de conserver sa propre base locale.
+  if (!primary) {
+    for (const candidate of classified.map((item) => item.url)) {
+      const connected = await tryCandidate(candidate, true);
+      if (connected) return connected;
+    }
+    throw new Error("CABINET_SERVER_NOT_FOUND");
+  }
+
+  const normalizedPrimary = normalizeServerUrl(primary);
+  const primaryConnection = await tryCandidate(normalizedPrimary, true);
+  if (primaryConnection) return primaryConnection;
+
+  // Si l'adresse IP du PC principal a change, essayer les autres machines du
+  // reseau avant d'activer la copie locale de secours.
+  for (const candidate of classified.filter((item) => !item.local && item.url !== normalizedPrimary).map((item) => item.url)) {
+    const connected = await tryCandidate(candidate, true);
+    if (connected) return connected;
+  }
+
+  const mirror = await window.desktop?.getEmergencyMirrorStatus();
+  if (primary && mirror?.available) {
+    if ((mirror.restoredAt || 0) < (mirror.syncedAt || 0)) {
+      const restoration = await window.desktop?.restoreEmergencyMirror();
+      if (restoration?.success) throw new Error("EMERGENCY_RESTORE_STARTED");
+    } else {
+      setServerUrl(DEFAULT_SERVER_URL);
+      setEmergencyReadOnlyMode(true);
+      return DEFAULT_SERVER_URL;
     }
   }
+
+  for (const candidate of classified.filter((item) => item.local).map((item) => item.url)) {
+    const connected = await tryCandidate(candidate, false);
+    if (connected) return connected;
+  }
   throw new Error("CABINET_SERVER_NOT_FOUND");
+}
+
+function isLocalServerUrl(url: string) {
+  return /:\/\/(127\.0\.0\.1|localhost)(:|$)/i.test(url);
+}
+
+async function syncEmergencyMirror(force: boolean) {
+  if (!window.desktop || await isServerOnThisComputer()) return;
+  await window.desktop.syncEmergencyMirror(getServerUrl(), force);
+}
+
+function scheduleEmergencyMirror(force: boolean) {
+  if (!window.desktop) return;
+  emergencyMirrorForcePending ||= force;
+  if (emergencyMirrorTimer !== null) window.clearTimeout(emergencyMirrorTimer);
+  emergencyMirrorTimer = window.setTimeout(() => {
+    emergencyMirrorTimer = null;
+    const forceNow = emergencyMirrorForcePending;
+    emergencyMirrorForcePending = false;
+    void syncEmergencyMirror(forceNow).catch(() => undefined);
+  }, emergencyMirrorForcePending ? 5_000 : 15_000);
 }
 
 async function rediscoverCabinetServerIfNeeded() {
@@ -172,6 +256,8 @@ export class ApiClient {
       }))) as ApiError;
       throw error;
     }
+    const mutation = !["GET", "HEAD", "OPTIONS"].includes(String(options.method || "GET").toUpperCase());
+    scheduleEmergencyMirror(mutation);
     if (response.status === 204) return undefined as T;
     return response.json() as Promise<T>;
   }
@@ -198,6 +284,7 @@ export class ApiClient {
   async saveTokens(auth: AuthResponse) {
     await setToken("accessToken", auth.accessToken);
     await setToken("refreshToken", auth.refreshToken);
+    scheduleEmergencyMirror(false);
   }
 
   async saveRememberedCredentials(username: string, password: string) {

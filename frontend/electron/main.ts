@@ -35,7 +35,9 @@ let softwareUpdateStatus: SoftwareUpdateStatus = {
 let updateCheckInProgress: Promise<SoftwareUpdateStatus> | null = null;
 let lastPromptedUpdate = "";
 let secureStoreMutationQueue: Promise<void> = Promise.resolve();
+let emergencyMirrorSync: Promise<{ success: boolean; syncedAt?: number; message: string }> | null = null;
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
+type EmergencyMirrorMetadata = { sourceUrl: string; syncedAt: number; restoredAt?: number };
 
 function cabinetLanIpv4Addresses() {
   // Windows expose aussi les cartes Hyper-V, WSL, Docker et les adaptateurs
@@ -48,6 +50,31 @@ function cabinetLanIpv4Addresses() {
     .filter((item) => item.family === "IPv4" && !item.internal)
     .map((item) => item.address)
     .filter((address) => /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(address));
+}
+
+function emergencyMirrorDirectory() {
+  return path.join(app.getPath("userData"), "emergency-mirror");
+}
+
+function emergencyMirrorBackupPath() {
+  return path.join(emergencyMirrorDirectory(), "latest.backup");
+}
+
+function emergencyMirrorMetadataPath() {
+  return path.join(emergencyMirrorDirectory(), "metadata.json");
+}
+
+function emergencyReadOnlyFlagPath() {
+  return path.join(emergencyMirrorDirectory(), "read-only.flag");
+}
+
+async function readEmergencyMirrorMetadata(): Promise<EmergencyMirrorMetadata | null> {
+  try {
+    const metadata = JSON.parse(await fs.readFile(emergencyMirrorMetadataPath(), "utf8")) as EmergencyMirrorMetadata;
+    return metadata.sourceUrl && Number.isFinite(metadata.syncedAt) ? metadata : null;
+  } catch {
+    return null;
+  }
 }
 
 if (process.platform === "win32") {
@@ -106,6 +133,34 @@ async function seedCabinetCredentials() {
 }
 
 function registerSecureStorage() {
+  ipcMain.handle("emergency-mirror:status", async () => {
+    const metadata = await readEmergencyMirrorMetadata();
+    const available = Boolean(metadata && await fs.stat(emergencyMirrorBackupPath()).then((item) => item.isFile()).catch(() => false));
+    return { available, ...metadata };
+  });
+  ipcMain.handle("emergency-mirror:sync", async (_event, serverUrl: string, force = false) => {
+    if (emergencyMirrorSync) return emergencyMirrorSync;
+    emergencyMirrorSync = syncEmergencyMirrorBackup(serverUrl, force).finally(() => { emergencyMirrorSync = null; });
+    return emergencyMirrorSync;
+  });
+  ipcMain.handle("emergency-mirror:restore", async () => {
+    const metadata = await readEmergencyMirrorMetadata();
+    if (!metadata || !await fs.stat(emergencyMirrorBackupPath()).then((item) => item.isFile()).catch(() => false)) {
+      return { success: false, message: "Aucune copie de secours n'est disponible sur ce PC." };
+    }
+    if ((metadata.restoredAt || 0) >= metadata.syncedAt) {
+      return { success: true, message: "La copie de secours locale est deja active." };
+    }
+    await fs.mkdir(emergencyMirrorDirectory(), { recursive: true });
+    await fs.writeFile(emergencyReadOnlyFlagPath(), String(Date.now()), "utf8");
+    const result = await restoreDatabaseBackup(emergencyMirrorBackupPath());
+    if (result.success) {
+      await fs.writeFile(emergencyMirrorMetadataPath(), JSON.stringify({ ...metadata, restoredAt: metadata.syncedAt }), "utf8");
+    } else {
+      await fs.rm(emergencyReadOnlyFlagPath(), { force: true });
+    }
+    return result;
+  });
   ipcMain.handle("software-update:status", () => softwareUpdateStatus);
   ipcMain.handle("software-update:check", async () => {
     publishSoftwareUpdateStatus({
@@ -652,6 +707,74 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
+async function syncEmergencyMirrorBackup(serverUrl: string, force: boolean) {
+  if (!app.isPackaged) return { success: false, message: "Mode secours reserve a l'application installee." };
+  let origin: string;
+  try {
+    const parsed = new URL(serverUrl);
+    const privateHost = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(parsed.hostname);
+    if (parsed.protocol !== "http:" || parsed.port !== "8080" || !privateHost) throw new Error("Adresse non autorisee");
+    if (cabinetLanIpv4Addresses().includes(parsed.hostname)) {
+      return { success: false, message: "Le PC principal conserve deja la base originale." };
+    }
+    origin = parsed.origin;
+  } catch {
+    return { success: false, message: "Serveur de secours invalide." };
+  }
+
+  const previous = await readEmergencyMirrorMetadata();
+  if (!force && previous?.sourceUrl === origin && Date.now() - previous.syncedAt < 15 * 60_000) {
+    return { success: true, syncedAt: previous.syncedAt, message: "Copie de secours deja recente." };
+  }
+
+  try {
+    const store = await readSecureStore();
+    const token = store.accessToken && safeStorage.isEncryptionAvailable()
+      ? safeStorage.decryptString(Buffer.from(store.accessToken, "base64")) : "";
+    if (!token) return { success: false, message: "Connectez-vous avant la synchronisation de secours." };
+    const headers = { Authorization: `Bearer ${token}` };
+    const created = await fetch(`${origin}/api/v1/backups`, {
+      method: "POST", headers, signal: AbortSignal.timeout(300000)
+    });
+    if (!created.ok) throw new Error(`creation HTTP ${created.status}`);
+    const record = await created.json() as { id?: string; status?: string };
+    if (!record.id || !String(record.status || "").startsWith("REUSSIE")) throw new Error("sauvegarde distante incomplete");
+    const download = await fetch(`${origin}/api/v1/backups/${encodeURIComponent(record.id)}/download`, {
+      headers, signal: AbortSignal.timeout(300000)
+    });
+    if (!download.ok) throw new Error(`telechargement HTTP ${download.status}`);
+    const payload = Buffer.from(await download.arrayBuffer());
+    if (payload.length === 0 || payload.length > 600 * 1024 * 1024) throw new Error("taille de sauvegarde invalide");
+
+    const directory = emergencyMirrorDirectory();
+    const temporary = path.join(directory, `latest.${process.pid}.part`);
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(temporary, payload);
+    const postgresBin = path.join(process.resourcesPath, "postgres", "bin");
+    const archiveValid = await runCommand(path.join(postgresBin, "pg_restore.exe"), ["--list", temporary], {
+      ...process.env,
+      PATH: [postgresBin, path.join(process.resourcesPath, "runtime", "bin"), process.env.PATH || ""].join(path.delimiter)
+    }, 30000, true);
+    if (archiveValid !== 0) {
+      await fs.rm(temporary, { force: true });
+      throw new Error("archive de secours invalide");
+    }
+    await fs.rm(emergencyMirrorBackupPath(), { force: true });
+    await fs.rename(temporary, emergencyMirrorBackupPath());
+    const syncedAt = Date.now();
+    const metadata: EmergencyMirrorMetadata = {
+      sourceUrl: origin,
+      syncedAt,
+      restoredAt: previous?.restoredAt
+    };
+    await fs.writeFile(emergencyMirrorMetadataPath(), JSON.stringify(metadata), "utf8");
+    return { success: true, syncedAt, message: "Copie de secours mise a jour sur ce PC." };
+  } catch (error) {
+    await appendDesktopLog(`Synchronisation secours impossible: ${errorMessage(error)}`);
+    return { success: false, message: `Synchronisation de secours impossible: ${errorMessage(error)}` };
+  }
+}
+
 async function runCommand(
   executable: string,
   args: string[],
@@ -829,6 +952,8 @@ async function startBackend(dbUrl: string, javaExecutable: string, jarPath: stri
     return false;
   }
   const accountEnvironment = await initialAccountEnvironment();
+  const emergencyReadOnly = await fs.stat(emergencyReadOnlyFlagPath())
+    .then((item) => item.isFile()).catch(() => false);
   const logsDirectory = path.join(app.getPath("userData"), "logs");
   await fs.mkdir(logsDirectory, { recursive: true });
   const backendLog = createWriteStream(path.join(logsDirectory, "backend.log"), { flags: "a" });
@@ -846,6 +971,7 @@ async function startBackend(dbUrl: string, javaExecutable: string, jarPath: stri
         JWT_SECRET_B64: jwtSecret,
         INSTALLATION_ID: installation.id,
         INSTALLATION_CREATED_AT: String(installation.createdAt),
+        APP_EMERGENCY_READ_ONLY: emergencyReadOnly ? "true" : "false",
         // Le backend reste protégé par JWT mais écoute le réseau privé afin que
         // le poste Docteur puisse utiliser la même base que le poste Assistante.
         SERVER_ADDRESS: "0.0.0.0", SERVER_PORT: "8080", DESKTOP_ORIGIN: "null",

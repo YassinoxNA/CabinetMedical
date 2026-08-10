@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld("desktop", {
   copyBackupFile: (serverUrl: string, backupId: string, suggestedName: string) => ipcRenderer.invoke("backup-file:copy", serverUrl, backupId, suggestedName) as Promise<{ success: boolean; canceled?: boolean; path?: string; message: string }>,
   getCabinetServerCandidates: () => ipcRenderer.invoke("cabinet-server:candidates") as Promise<string[]>,
   isCabinetServerLocal: (serverUrl: string) => ipcRenderer.invoke("cabinet-server:is-local", serverUrl) as Promise<boolean>,
+  syncEmergencyMirror: (serverUrl: string, force = false) => ipcRenderer.invoke("emergency-mirror:sync", serverUrl, force) as Promise<{ success: boolean; syncedAt?: number; message: string }>,
+  getEmergencyMirrorStatus: () => ipcRenderer.invoke("emergency-mirror:status") as Promise<{ available: boolean; syncedAt?: number; restoredAt?: number; sourceUrl?: string }>,
+  restoreEmergencyMirror: () => ipcRenderer.invoke("emergency-mirror:restore") as Promise<{ success: boolean; message: string }>,
   getSoftwareUpdateStatus: () => ipcRenderer.invoke("software-update:status"),
   checkForSoftwareUpdate: () => ipcRenderer.invoke("software-update:check"),
   onSoftwareUpdateStatus: (callback: (status: unknown) => void) => {
