@@ -14,9 +14,6 @@ interface Window {
     copyBackupFile(serverUrl: string, backupId: string, suggestedName: string): Promise<{ success: boolean; canceled?: boolean; path?: string; message: string }>;
     getCabinetServerCandidates(): Promise<string[]>;
     isCabinetServerLocal(serverUrl: string): Promise<boolean>;
-    syncEmergencyMirror(serverUrl: string, force?: boolean): Promise<{ success: boolean; syncedAt?: number; message: string }>;
-    getEmergencyMirrorStatus(): Promise<{ available: boolean; syncedAt?: number; restoredAt?: number; sourceUrl?: string }>;
-    restoreEmergencyMirror(): Promise<{ success: boolean; message: string }>;
     getSoftwareUpdateStatus(): Promise<SoftwareUpdateStatus>;
     checkForSoftwareUpdate(): Promise<SoftwareUpdateStatus>;
     onSoftwareUpdateStatus(callback: (status: SoftwareUpdateStatus) => void): () => void;
