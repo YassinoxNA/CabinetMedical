@@ -39,8 +39,12 @@ public class DashboardService {
 
         return new DashboardStatsResponse(
                 Instant.now(),
-                count("select count(*) from patients where deleted_at is null"),
-                count("select count(*) from patients where deleted_at is null and created_at >= ? and created_at < ?",
+                count("select count(*) from patients where deleted_at is null and archived_at is null"),
+                count("""
+                        select count(*) from patients
+                        where deleted_at is null and archived_at is null
+                          and created_at >= ? and created_at < ?
+                        """,
                         monthStart, nextMonthStart),
                 count("select count(*) from appointments where starts_at >= ? and starts_at < ?",
                         todayStart, tomorrowStart),
@@ -95,7 +99,8 @@ public class DashboardService {
                     "Sem. " + week,
                     count("""
                             select count(*) from patients
-                            where deleted_at is null and created_at >= ? and created_at < ?
+                            where deleted_at is null and archived_at is null
+                              and created_at >= ? and created_at < ?
                             """,
                             cursor.atStartOfDay(CABINET_ZONE).toInstant(),
                             end.atStartOfDay(CABINET_ZONE).toInstant())
