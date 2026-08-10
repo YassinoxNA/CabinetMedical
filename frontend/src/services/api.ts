@@ -150,6 +150,10 @@ async function syncEmergencyMirror(force: boolean) {
   await window.desktop.syncEmergencyMirror(getServerUrl(), force);
 }
 
+export async function refreshEmergencyMirror() {
+  await syncEmergencyMirror(false);
+}
+
 function scheduleEmergencyMirror(force: boolean) {
   if (!window.desktop) return;
   emergencyMirrorForcePending ||= force;
