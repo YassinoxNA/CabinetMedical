@@ -1,6 +1,6 @@
 ﻿import { ui } from "../styles";
 import { ChevronLeft, ChevronRight, FlaskConical, MapPin, Pencil, Phone, Plus, Search, Trash2, X } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { useLanguage } from "../i18n/LanguageContext";
 import { api } from "../services/api";
@@ -65,14 +65,9 @@ export function LaboratoriesPage() {
         maximumFractionDigits: 2
     });
     const dateFormatter = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
-    const monthFormatter = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" });
     const formatDate = (value?: string) => value
         ? dateFormatter.format(new Date(`${value.slice(0, 10)}T12:00:00`))
         : "—";
-    const formatMonth = (value: string) => {
-        const [year, month] = value.split("-").map(Number);
-        return year && month ? monthFormatter.format(new Date(year, month - 1, 1)) : value;
-    };
     const jobTypeLabel = (jobType: string) => ({
         COURONNE: text("Couronne", "تاج"),
         "Obturation composite": text("Obturation composite", "حشوة كومبوزيت"),
@@ -94,7 +89,6 @@ export function LaboratoriesPage() {
     const [dialog, setDialog] = useState<Dialog>(null);
     const [feedback, setFeedback] = useState("");
     const [feedbackIsError, setFeedbackIsError] = useState(false);
-    const [jobMonth, setJobMonth] = useState("");
     const [labQuery, setLabQuery] = useState("");
     const [labPage, setLabPage] = useState(1);
     const [jobPage, setJobPage] = useState(1);
@@ -105,18 +99,13 @@ export function LaboratoriesPage() {
     const [editingLab, setEditingLab] = useState<Laboratory | null>(null);
     const [editingJob, setEditingJob] = useState<LaboratoryJob | null>(null);
 
-    const jobMonthOptions = useMemo(() => Array.from(new Set(
-        jobs.map((item) => item.expectedDate?.slice(0, 7)).filter(Boolean) as string[]
-    )).sort(), [jobs]);
     const normalizedLabQuery = labQuery.trim().toLocaleLowerCase(locale);
     const filteredLabs = normalizedLabQuery
         ? labs.filter((item) => [item.name, item.managerName, item.phone, item.city]
             .filter(Boolean)
             .some((value) => value!.toLocaleLowerCase(locale).includes(normalizedLabQuery)))
         : labs;
-    const filteredJobs = jobMonth
-        ? jobs.filter((item) => item.expectedDate?.startsWith(jobMonth))
-        : jobs;
+    const filteredJobs = jobs;
     const labPageCount = Math.max(1, Math.ceil(filteredLabs.length / labPageSize));
     const currentLabPage = Math.min(labPage, labPageCount);
     const paginatedLabs = filteredLabs.slice(
@@ -157,7 +146,7 @@ export function LaboratoriesPage() {
 
     useEffect(() => {
         setJobPage(1);
-    }, [jobMonth, jobPageSize]);
+    }, [jobPageSize]);
 
     useEffect(() => {
         setLabPage(1);
@@ -328,7 +317,9 @@ export function LaboratoriesPage() {
           feedbackIsError ? "alert alert-error" : "alert alert-success"
       )}>{feedback}</div>}
 
-      <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-end gap-4 max-[1000px]:grid-cols-1">
+      <div className={`mb-4 mt-6 grid items-end gap-4 max-[1000px]:grid-cols-1 ${
+          tab === "laboratories" ? "grid-cols-[1fr_auto_1fr]" : "grid-cols-[1fr_auto]"
+      }`}>
       <div className={`${ui("tabs")} mb-0 justify-self-start`}>
         <button className={ui(tab === "laboratories" ? "active" : "")} onClick={() => setTab("laboratories")}>
           {text("Laboratoires", "المختبرات")}
@@ -337,25 +328,16 @@ export function LaboratoriesPage() {
           {text(`Travaux (${jobs.length})`, `الأعمال (${jobs.length})`)}
         </button>
       </div>
-      {tab === "laboratories"
-        ? <label className="relative w-full max-w-md justify-self-center max-[1000px]:justify-self-start">
-            <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"/>
-            <input
-              type="search"
-              className="h-11 w-full rounded-xl border border-teal-100 bg-teal-50/60 ps-10 pe-3 text-sm text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
-              placeholder={text("Filtrer les laboratoires…", "تصفية المختبرات…")}
-              value={labQuery}
-              onChange={(event) => setLabQuery(event.target.value)}
-            />
-          </label>
-        : <label className={`${ui("select-field")} justify-self-center rounded-xl border border-teal-100 bg-teal-50/60 px-4 py-3 max-[1000px]:justify-self-start`}>
-            {text("Filtrer par mois prévu", "التصفية حسب شهر التسليم")}
-            <select value={jobMonth} onChange={(event) => setJobMonth(event.target.value)}>
-              <option value="">{text("Tous les mois", "كل الأشهر")}</option>
-              {jobMonthOptions.map((month) => <option key={month} value={month}>{formatMonth(month)}</option>)}
-            </select>
-          </label>
-      }
+      {tab === "laboratories" && <label className="relative w-full max-w-md justify-self-center max-[1000px]:justify-self-start">
+        <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-slate-400"/>
+        <input
+          type="search"
+          className="h-11 w-full rounded-xl border border-teal-100 bg-teal-50/60 ps-10 pe-3 text-sm text-slate-700 outline-none focus:border-teal-400 focus:ring-2 focus:ring-teal-100"
+          placeholder={text("Filtrer les laboratoires…", "تصفية المختبرات…")}
+          value={labQuery}
+          onChange={(event) => setLabQuery(event.target.value)}
+        />
+      </label>}
       <div className={`${ui("header-actions")} justify-self-end max-[1000px]:justify-self-start`}>
         <button
             className={ui("button ghost")}
@@ -513,18 +495,6 @@ export function LaboratoriesPage() {
                 onChange={(event) => setLabForm({ ...labForm, city: event.target.value })}
               />
             </label>
-            <label>
-              {text("E-mail", "البريد الإلكتروني")}
-              <input type="email" value={labForm.email} onChange={(event) => setLabForm({ ...labForm, email: event.target.value })}/>
-            </label>
-            <label>
-              {text("Adresse", "العنوان")}
-              <input value={labForm.address} onChange={(event) => setLabForm({ ...labForm, address: event.target.value })}/>
-            </label>
-            <label className="col-span-full">
-              {text("Observations", "ملاحظات")}
-              <textarea value={labForm.observations} onChange={(event) => setLabForm({ ...labForm, observations: event.target.value })}/>
-            </label>
           </div>}
 
           {dialog === "job" && <div className={ui("form-grid")}>
@@ -588,10 +558,6 @@ export function LaboratoriesPage() {
                 onChange={(event) => setJob({ ...job, shade: event.target.value })}
               />
             </label>
-            <label className="col-span-full">
-              {text("Description", "الوصف")}
-              <textarea value={job.description} onChange={(event) => setJob({ ...job, description: event.target.value })}/>
-            </label>
             <label>
               {text("Prix laboratoire (MAD)", "سعر المختبر (درهم)")} <b className="text-red-500">*</b>
               <input
@@ -625,10 +591,6 @@ export function LaboratoriesPage() {
                 value={job.expectedDate}
                 onChange={(event) => setJob({ ...job, expectedDate: event.target.value })}
               />
-            </label>
-            <label className="col-span-full">
-              {text("Notes", "ملاحظات")}
-              <textarea value={job.notes} onChange={(event) => setJob({ ...job, notes: event.target.value })}/>
             </label>
           </div>}
 
