@@ -3,7 +3,7 @@ import { Bell, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, FlaskConica
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../store/authStore";
-import { api, isEmergencyReadOnlyMode, refreshEmergencyMirror } from "../services/api";
+import { api, isEmergencyReadOnlyMode } from "../services/api";
 import type { AuditLog, Page } from "../types";
 import cabinetLogo from "../assets/dental-sabri-logo.png";
 import { LanguageSwitcher } from "./LanguageSwitcher";
@@ -65,12 +65,6 @@ export function AppLayout() {
         window.addEventListener("cabinet:emergency-mode", updateEmergencyMode);
         return () => window.removeEventListener("cabinet:emergency-mode", updateEmergencyMode);
     }, []);
-    useEffect(() => {
-        if (!user) return;
-        void refreshEmergencyMirror().catch(() => undefined);
-        const timer = window.setInterval(() => void refreshEmergencyMirror().catch(() => undefined), 15 * 60_000);
-        return () => window.clearInterval(timer);
-    }, [user]);
     useEffect(() => {
         if (user?.role !== "ASSISTANTE") {
             setDoctorActivity([]);
