@@ -1,7 +1,7 @@
 import { ui } from "../styles";
 import {
     BadgeDollarSign, CalendarDays, Calculator, Download, FileText,
-    Plus, ReceiptText, UserRound
+    Pencil, Plus, ReceiptText, Trash2, UserRound
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
@@ -41,7 +41,9 @@ export function InvoicesPage() {
     const [invoices, setInvoices] = useState<Invoice[]>([]);
     const [dialog, setDialog] = useState<"invoice" | "payment" | null>(null);
     const [selected, setSelected] = useState<Invoice | null>(null);
+    const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
     const [feedback, setFeedback] = useState("");
+    const [feedbackIsError, setFeedbackIsError] = useState(false);
     const [invoiceForm, setInvoiceForm] = useState(newInvoiceForm);
     const [payment, setPayment] = useState(initialPayment);
     const billedInvoices = invoices.filter((invoice) =>
@@ -80,36 +82,87 @@ export function InvoicesPage() {
         try {
             setInvoices(await api.get<Invoice[]>(`/patients/${id}/invoices`));
             setFeedback("");
+            setFeedbackIsError(false);
         }
         catch {
             setFeedback(text("Impossible de charger les factures.", "تعذّر تحميل الفواتير."));
+            setFeedbackIsError(true);
         }
     }
     async function createInvoice(event: FormEvent) {
         event.preventDefault();
         if (!invoiceIsValid) {
             setFeedback(text("Tous les champs du document sont obligatoires.", "جميع حقول المستند إلزامية."));
+            setFeedbackIsError(true);
             return;
         }
-        await api.post("/patient-invoices", {
-            patientId,
-            type: invoiceForm.type,
-            invoiceDate: invoiceForm.invoiceDate,
-            items: [{
-                description: invoiceForm.description.trim(),
-                quantity: invoiceQuantity,
-                unitPrice: invoiceUnitPrice
-            }]
-        });
-        setInvoiceForm(newInvoiceForm());
-        setDialog(null);
-        setFeedback(text("Document créé en brouillon.", "تم إنشاء المستند كمسودة."));
-        await load();
+        try {
+            const payload = {
+                patientId,
+                type: invoiceForm.type,
+                invoiceDate: invoiceForm.invoiceDate,
+                notes: editingInvoice?.notes || null,
+                items: [{
+                    description: invoiceForm.description.trim(),
+                    quantity: invoiceQuantity,
+                    unitPrice: invoiceUnitPrice
+                }]
+            };
+            if (editingInvoice) await api.put(`/patient-invoices/${editingInvoice.id}`, payload);
+            else await api.post("/patient-invoices", payload);
+            setInvoiceForm(newInvoiceForm());
+            setEditingInvoice(null);
+            setDialog(null);
+            setFeedback(editingInvoice
+                ? text("Document modifié.", "تم تعديل المستند.")
+                : text("Document créé en brouillon.", "تم إنشاء المستند كمسودة."));
+            setFeedbackIsError(false);
+            await load();
+        } catch (reason) {
+            setFeedback((reason as { message?: string }).message || text(
+                "Modification du document impossible.",
+                "تعذّر تعديل المستند."
+            ));
+            setFeedbackIsError(true);
+        }
+    }
+    function openInvoiceForm(invoice?: Invoice) {
+        setEditingInvoice(invoice || null);
+        const firstItem = invoice?.items[0];
+        setInvoiceForm(invoice ? {
+            type: invoice.type,
+            invoiceDate: invoice.invoiceDate.slice(0, 10),
+            description: firstItem?.description || "",
+            quantity: String(firstItem?.quantity || 1),
+            unitPrice: String(firstItem?.unitPrice || invoice.totalAmount)
+        } : newInvoiceForm());
+        setFeedback("");
+        setFeedbackIsError(false);
+        setDialog("invoice");
+    }
+    async function removeInvoice(invoice: Invoice) {
+        if (!window.confirm(text(
+            `Voulez-vous vraiment supprimer le brouillon ${invoice.invoiceNumber} ? Cette action est irreversible.`,
+            `هل تريد فعلاً حذف المسودة ${invoice.invoiceNumber}؟ لا يمكن التراجع عن هذا الإجراء.`
+        ))) return;
+        try {
+            await api.delete(`/patient-invoices/${invoice.id}`);
+            setFeedback(text("Brouillon supprimé.", "تم حذف المسودة."));
+            setFeedbackIsError(false);
+            await load();
+        } catch (reason) {
+            setFeedback((reason as { message?: string }).message || text(
+                "Suppression du document impossible.",
+                "تعذّر حذف المستند."
+            ));
+            setFeedbackIsError(true);
+        }
     }
     async function pay(event: FormEvent) {
         event.preventDefault();
         if (!selected || !paymentIsValid) {
             setFeedback(text("Impossible d’enregistrer : vérifiez le montant du versement.", "تعذّر الحفظ: تحقق من مبلغ الدفعة."));
+            setFeedbackIsError(true);
             return;
         }
         await api.post("/patient-payments", { invoiceId: selected.id, amount: paymentAmount, paymentDate: new Date().toISOString(),
@@ -120,10 +173,11 @@ export function InvoicesPage() {
         setFeedback(remainingAfterPayment > 0
             ? text(`Versement enregistré. Crédit patient restant : ${money.format(remainingAfterPayment)}.`, `تم حفظ الدفعة. الرصيد المتبقي على المريض: ${money.format(remainingAfterPayment)}.`)
             : text("Paiement complet enregistré. La facture est soldée.", "تم تسجيل الدفع الكامل وتسوية الفاتورة."));
+        setFeedbackIsError(false);
         await load();
     }
     return <>
-    {feedback && <div className={ui(feedback.includes("Impossible") || feedback.includes("تعذّر") ? "alert alert-error" : "alert alert-success")}>{feedback}</div>}
+    {feedback && <div className={ui(feedbackIsError ? "alert alert-error" : "alert alert-success")}>{feedback}</div>}
     <section className={`${ui("panel")} flex min-h-[calc(100vh-230px)] flex-col`}>
       <div className={ui("toolbar")}>
         <div className="min-w-0 max-w-2xl flex-1">
@@ -141,7 +195,7 @@ export function InvoicesPage() {
           </label>
         </div>
         <div className="flex items-center gap-3"><span className={ui("result-count")}>{text(`${invoices.length} document(s)`, `${invoices.length} مستند`)}</span>
-          <button className={ui("button primary")} disabled={!patientId} onClick={() => { setInvoiceForm(newInvoiceForm()); setFeedback(""); setDialog("invoice"); }}><Plus size={17}/> {text("Nouveau document", "مستند جديد")}</button>
+          <button className={ui("button primary")} disabled={!patientId} onClick={() => openInvoiceForm()}><Plus size={17}/> {text("Nouveau document", "مستند جديد")}</button>
         </div></div>
       {patientId && invoices.length > 0 && <div className="mb-5 grid grid-cols-3 gap-3 max-[760px]:grid-cols-1" aria-label={text("Résumé financier du patient", "الملخص المالي للمريض")}>
         <article className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -161,6 +215,7 @@ export function InvoicesPage() {
             <div className={ui("invoice-cards")}>{invoices.map((invoice) => {
           const remaining = Number(invoice.remainingAmount);
           const isPayableInvoice = invoice.type === "FACTURE" && !["BROUILLON", "ANNULEE"].includes(invoice.status);
+          const canEditDraft = invoice.status === "BROUILLON" && invoice.items.length === 1;
           return <article key={invoice.id}><div className={ui("document-icon")}><ReceiptText /></div>
           <div><span className={ui("eyebrow")}>{invoiceTypeLabel(invoice.type)}</span><h3>{invoice.invoiceNumber}</h3><small>{formatDate(invoice.invoiceDate)}</small></div>
           <div className={`${ui("invoice-amount")} min-w-[250px]`}>
@@ -183,12 +238,16 @@ export function InvoicesPage() {
             </>}
           </div>
           <StatusBadge value={invoice.status}/>
-                                        <button className={ui("icon-button")} title={text("Télécharger le PDF", "تنزيل PDF")} onClick={() => api.download(`/patient-invoices/${invoice.id}/pdf`, `${invoice.invoiceNumber}.pdf`)}><Download /></button>
+          <div className="flex items-center gap-2">
+            <button className={ui("icon-button")} title={text("Télécharger le PDF", "تنزيل PDF")} onClick={() => api.download(`/patient-invoices/${invoice.id}/pdf`, `${invoice.invoiceNumber}.pdf`)}><Download /></button>
+            <button type="button" className={ui("icon-button")} disabled={!canEditDraft} title={canEditDraft ? text("Modifier", "تعديل") : text("Seul un brouillon simple peut être modifié", "يمكن تعديل المسودة البسيطة فقط")} onClick={() => openInvoiceForm(invoice)}><Pencil className="size-4"/></button>
+            <button type="button" className={`${ui("icon-button")} text-red-600 hover:bg-red-50`} disabled={invoice.status !== "BROUILLON"} title={invoice.status === "BROUILLON" ? text("Supprimer", "حذف") : text("Seul un brouillon peut être supprimé", "يمكن حذف المسودة فقط")} onClick={() => void removeInvoice(invoice)}><Trash2 className="size-4"/></button>
+          </div>
         </article>;})}</div>}
     </section>
     {dialog && <div className={ui("modal-backdrop")}><form className={ui("modal")} onSubmit={dialog === "invoice" ? createInvoice : pay}>
-      <div className={ui("modal-head")}><div><span className={ui("eyebrow")}>{text("Facturation patient", "فوترة المريض")}</span><h2>{dialog === "invoice" ? text("Nouveau document", "مستند جديد") : `${text("Paiement", "دفعة")} ${selected?.invoiceNumber}`}</h2></div>
-        <button type="button" className={ui("icon-button")} aria-label={text("Fermer", "إغلاق")} onClick={() => setDialog(null)}>×</button></div>
+      <div className={ui("modal-head")}><div><span className={ui("eyebrow")}>{text("Facturation patient", "فوترة المريض")}</span><h2>{dialog === "invoice" ? (editingInvoice ? text("Modifier le document", "تعديل المستند") : text("Nouveau document", "مستند جديد")) : `${text("Paiement", "دفعة")} ${selected?.invoiceNumber}`}</h2></div>
+        <button type="button" className={ui("icon-button")} aria-label={text("Fermer", "إغلاق")} onClick={() => { setDialog(null); setEditingInvoice(null); }}>×</button></div>
       {dialog === "invoice" ? <div className="space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
           <p className="text-xs leading-5 text-slate-600">
@@ -303,7 +362,7 @@ export function InvoicesPage() {
           </button>
         </div>
       </div>}
-      <div className={ui("modal-actions")}><button type="button" className={ui("button ghost")} onClick={() => setDialog(null)}>{text("Annuler", "إلغاء")}</button><button className={ui("button primary")} disabled={dialog === "payment" && !paymentIsValid}>{dialog === "payment" ? text("Enregistrer le versement", "حفظ الدفعة") : text("Créer le document", "إنشاء المستند")}</button></div>
+      <div className={ui("modal-actions")}><button type="button" className={ui("button ghost")} onClick={() => { setDialog(null); setEditingInvoice(null); }}>{text("Annuler", "إلغاء")}</button><button className={ui("button primary")} disabled={dialog === "payment" && !paymentIsValid}>{dialog === "payment" ? text("Enregistrer le versement", "حفظ الدفعة") : editingInvoice ? text("Enregistrer les modifications", "حفظ التعديلات") : text("Créer le document", "إنشاء المستند")}</button></div>
     </form></div>}
   </>;
 }

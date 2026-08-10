@@ -1,7 +1,7 @@
 import { ui } from "../styles";
 import {
     CalendarDays, ChevronLeft, ChevronRight, IdCard, LoaderCircle, MapPin,
-    Phone, Plus, Search, ShieldCheck, UserRound, UsersRound, X
+    Pencil, Phone, Plus, Search, ShieldCheck, Trash2, UserRound, UsersRound, X
 } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -37,6 +37,7 @@ export function PatientsPage() {
     const [loadError, setLoadError] = useState("");
     const [refreshKey, setRefreshKey] = useState(0);
     const [showForm, setShowForm] = useState(false);
+    const [editingPatient, setEditingPatient] = useState<Patient | null>(null);
     const [form, setForm] = useState(emptyForm);
     const [error, setError] = useState("");
     const [accessMessage, setAccessMessage] = useState("");
@@ -111,7 +112,51 @@ export function PatientsPage() {
         };
     }, [page, pageSize, query, refreshKey, text]);
 
-    async function create(event: FormEvent) {
+    function openCreateForm() {
+        setEditingPatient(null);
+        setForm(emptyForm);
+        setError("");
+        setShowForm(true);
+    }
+
+    function openEditForm(patient: Patient) {
+        setEditingPatient(patient);
+        setForm({
+            firstName: patient.firstName || "",
+            lastName: patient.lastName || "",
+            cin: patient.cin || "",
+            primaryPhone: patient.primaryPhone || "",
+            city: patient.city || "",
+            birthDate: patient.birthDate || "",
+            sex: patient.sex || "",
+            allergies: patient.allergies || "",
+            medicalHistory: patient.medicalHistory || "",
+            observations: patient.observations || ""
+        });
+        setError("");
+        setShowForm(true);
+    }
+
+    async function removePatient(patient: Patient) {
+        const confirmed = window.confirm(text(
+            `Voulez-vous vraiment retirer ${patient.firstName} ${patient.lastName} de la liste active ? Son historique medical sera conserve.`,
+            `هل تريد فعلاً إزالة ${patient.firstName} ${patient.lastName} من القائمة النشطة؟ سيبقى سجله الطبي محفوظاً.`
+        ));
+        if (!confirmed) return;
+        try {
+            await api.delete(`/patients/${patient.id}`);
+            setAccessMessage("");
+            setPage(0);
+            setRefreshKey((current) => current + 1);
+        } catch (reason) {
+            setLoadError((reason as { message?: string }).message || text(
+                "Suppression du patient impossible.",
+                "تعذّر حذف المريض."
+            ));
+        }
+    }
+
+    async function savePatient(event: FormEvent) {
         event.preventDefault();
         if (submissionLock.current) return;
 
@@ -120,10 +165,20 @@ export function PatientsPage() {
         try {
             const payload = {
                 ...Object.fromEntries(Object.entries(form).map(([key, value]) => [key, value || null])),
-                address: null,
-                coverageType: "SANS_ASSURANCE",
-                membershipNumber: null
+                secondaryPhone: editingPatient?.secondaryPhone || null,
+                address: editingPatient?.address || null,
+                email: editingPatient?.email || null,
+                coverageType: editingPatient?.coverageType || "SANS_ASSURANCE",
+                membershipNumber: editingPatient?.membershipNumber || null
             };
+            if (editingPatient) {
+                await api.put(`/patients/${editingPatient.id}`, payload);
+                setForm(emptyForm);
+                setEditingPatient(null);
+                setShowForm(false);
+                setRefreshKey((current) => current + 1);
+                return;
+            }
             const duplicates = await api.post<{
                 possibleDuplicate: boolean;
                 matches: Patient[];
@@ -172,7 +227,7 @@ export function PatientsPage() {
         <div className={ui("toolbar")}><div className={ui("search-field")}><Search size={18}/><input placeholder={text("Nom, téléphone, CIN ou numéro patient…", "الاسم أو الهاتف أو رقم البطاقة الوطنية أو رقم المريض…")} value={query} onChange={(e) => { setQuery(e.target.value); setPage(0); }}/></div>
           <div className="flex items-center gap-3">
             <span className={ui("result-count")}>{text(`${data?.totalElements ?? 0} patient(s)`, `${data?.totalElements ?? 0} مريض`)}</span>
-            <button className={ui("button primary")} onClick={() => setShowForm(true)}><Plus size={17}/> {text("Nouveau patient", "مريض جديد")}</button>
+            <button className={ui("button primary")} onClick={openCreateForm}><Plus size={17}/> {text("Nouveau patient", "مريض جديد")}</button>
           </div>
         </div>
         {loadError ? (
@@ -188,10 +243,14 @@ export function PatientsPage() {
               <span>{text("Chargement des patients…", "جارٍ تحميل المرضى…")}</span>
             </div>
         ) : !data?.content.length ? <EmptyState message={query.trim() ? text("Aucun patient ne correspond à votre recherche.", "لا يوجد مريض مطابق لبحثك.") : text("Aucun patient enregistré.", "لم يتم تسجيل أي مريض.")}/> :
-            <div className={`${ui("data-table")} flex-1 ${isLoading ? "pointer-events-none opacity-60" : ""}`}><table><thead><tr><th>{text("Patient", "المريض")}</th><th>{text("N° dossier", "رقم الملف")}</th><th>{text("Téléphone", "الهاتف")}</th><th>{text("Ville", "المدينة")}</th><th>{text("Statut", "الحالة")}</th></tr></thead>
+            <div className={`${ui("data-table")} flex-1 ${isLoading ? "pointer-events-none opacity-60" : ""}`}><table><thead><tr><th>{text("Patient", "المريض")}</th><th>{text("N° dossier", "رقم الملف")}</th><th>{text("Téléphone", "الهاتف")}</th><th>{text("Ville", "المدينة")}</th><th>{text("Statut", "الحالة")}</th><th>{text("Actions", "الإجراءات")}</th></tr></thead>
             <tbody>{data.content.map((patient) => <tr key={patient.id} className={ui("clickable-row")} onClick={() => void openPatientDossier(patient)}><td><div className={ui("person-cell")}><span className={ui("mini-avatar")}><UserRound size={16}/></span><div><strong>{patient.firstName} {patient.lastName}</strong><small>{patient.cin || text("CIN non renseignée", "رقم البطاقة الوطنية غير مسجل")}</small></div></div></td>
               <td className={ui("mono")}>{patient.patientNumber}</td><td>{patient.primaryPhone}</td><td>{patient.city || "—"}</td>
-              <td><StatusBadge value={patient.fileStatus}/></td></tr>)}</tbody></table></div>}
+              <td><StatusBadge value={patient.fileStatus}/></td>
+              <td><div className="flex items-center gap-2">
+                <button type="button" className={ui("icon-button")} title={text("Modifier", "تعديل")} aria-label={text("Modifier le patient", "تعديل المريض")} onClick={(event) => { event.stopPropagation(); openEditForm(patient); }}><Pencil className="size-4"/></button>
+                <button type="button" className={`${ui("icon-button")} text-red-600 hover:bg-red-50`} title={text("Supprimer", "حذف")} aria-label={text("Supprimer le patient", "حذف المريض")} onClick={(event) => { event.stopPropagation(); void removePatient(patient); }}><Trash2 className="size-4"/></button>
+              </div></td></tr>)}</tbody></table></div>}
         {data && data.totalElements > 0 && !loadError && (
             <footer className="mt-auto flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 pt-4">
               <div className="flex flex-wrap items-center gap-4 text-xs text-slate-500">
@@ -265,10 +324,10 @@ export function PatientsPage() {
             </footer>
         )}
       </section>
-      {showForm && <div className={ui("modal-backdrop")}><form className={ui("modal wide patient-modal")} onSubmit={create}>
-        <div className={ui("patient-modal-head")}><div><span className={ui("eyebrow")}>{text("Nouveau dossier médical", "ملف طبي جديد")}</span><h2>{text("Ajouter un patient", "إضافة مريض")}</h2>
+      {showForm && <div className={ui("modal-backdrop")}><form className={ui("modal wide patient-modal")} onSubmit={savePatient}>
+        <div className={ui("patient-modal-head")}><div><span className={ui("eyebrow")}>{editingPatient ? text("Modification du dossier", "تعديل الملف") : text("Nouveau dossier médical", "ملف طبي جديد")}</span><h2>{editingPatient ? text("Modifier le patient", "تعديل المريض") : text("Ajouter un patient", "إضافة مريض")}</h2>
           <p>{text("Renseignez les informations du patient. Les champs marqués", "أدخل معلومات المريض. الحقول المشار إليها بـ")} <b>*</b> {text("sont obligatoires.", "إلزامية.")}</p></div>
-          <button type="button" className={ui("icon-button")} aria-label={text("Fermer", "إغلاق")} onClick={() => setShowForm(false)}><X/></button></div>
+          <button type="button" className={ui("icon-button")} aria-label={text("Fermer", "إغلاق")} onClick={() => { setShowForm(false); setEditingPatient(null); }}><X/></button></div>
         <div className={ui("patient-modal-body")}>
           {error && <div className={ui("alert alert-error")}>{error}</div>}
 
@@ -293,8 +352,8 @@ export function PatientsPage() {
 
         </div>
         <div className={ui("patient-modal-actions")}><span><ShieldCheck/> {text("Les données sont enregistrées uniquement dans le cabinet.", "تُحفظ البيانات داخل العيادة فقط.")}</span><div>
-          <button type="button" className={ui("button ghost")} onClick={() => setShowForm(false)}>{text("Annuler", "إلغاء")}</button>
-          <button type="submit" className={ui("button primary")}><Plus aria-hidden="true"/> {text("Créer le dossier patient", "إنشاء ملف المريض")}</button>
+          <button type="button" className={ui("button ghost")} onClick={() => { setShowForm(false); setEditingPatient(null); }}>{text("Annuler", "إلغاء")}</button>
+          <button type="submit" className={ui("button primary")}>{editingPatient ? <Pencil aria-hidden="true"/> : <Plus aria-hidden="true"/>} {editingPatient ? text("Enregistrer les modifications", "حفظ التعديلات") : text("Créer le dossier patient", "إنشاء ملف المريض")}</button>
         </div></div>
       </form></div>}
     </>);

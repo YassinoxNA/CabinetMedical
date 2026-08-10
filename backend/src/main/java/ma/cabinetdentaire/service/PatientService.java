@@ -39,7 +39,7 @@ public class PatientService {
     @Transactional(readOnly = true)
     public Page<PatientResponse> list(String query, Pageable pageable) {
         Page<Patient> page = query == null || query.isBlank()
-                ? repository.findAllByDeletedAtIsNull(pageable)
+                ? repository.findAllByDeletedAtIsNullAndArchivedAtIsNull(pageable)
                 : repository.search(query.trim(), pageable);
         return page.map(PatientMapper::toResponse);
     }

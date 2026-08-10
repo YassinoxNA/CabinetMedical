@@ -97,7 +97,11 @@ export interface Laboratory {
   name: string;
   managerName?: string;
   phone?: string;
+  email?: string;
+  address?: string;
   city?: string;
+  taxIdentifier?: string;
+  observations?: string;
   active: boolean;
 }
 

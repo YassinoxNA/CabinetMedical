@@ -56,4 +56,25 @@ class PatientInvoiceTest {
                 PatientInvoice.Type.FACTURE, LocalDate.now(), null);
         assertThrows(IllegalStateException.class, () -> invoice.validate(Instant.now()));
     }
+
+    @Test
+    void updatesOnlyDraftAndRecalculatesItems() {
+        PatientInvoice invoice = invoice();
+        invoice.updateDraft(PatientInvoice.Type.DEVIS, LocalDate.of(2026, 8, 10), "Mise a jour");
+        invoice.addItem("Couronne", "26", BigDecimal.ONE, new BigDecimal("700"));
+
+        assertEquals(PatientInvoice.Type.DEVIS, invoice.getInvoiceType());
+        assertEquals(LocalDate.of(2026, 8, 10), invoice.getInvoiceDate());
+        assertEquals(new BigDecimal("700"), invoice.getTotalAmount());
+        assertEquals(1, invoice.getItems().size());
+    }
+
+    @Test
+    void rejectsUpdateAfterValidation() {
+        PatientInvoice invoice = invoice();
+        invoice.validate(Instant.now());
+
+        assertThrows(IllegalStateException.class, () -> invoice.updateDraft(
+                PatientInvoice.Type.DEVIS, LocalDate.now(), null));
+    }
 }

@@ -32,7 +32,7 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
 
     @Query("""
             select p from Patient p
-            where p.deletedAt is null and (
+            where p.deletedAt is null and p.archivedAt is null and (
                 lower(p.firstName) like lower(concat('%', :q, '%'))
                 or lower(p.lastName) like lower(concat('%', :q, '%'))
                 or lower(concat(p.firstName, ' ', p.lastName)) like lower(concat('%', :q, '%'))
@@ -43,12 +43,12 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
             """)
     Page<Patient> search(@Param("q") String query, Pageable pageable);
 
-    Page<Patient> findAllByDeletedAtIsNull(Pageable pageable);
+    Page<Patient> findAllByDeletedAtIsNullAndArchivedAtIsNull(Pageable pageable);
     long countByDeletedAtIsNull();
 
     @Query("""
             select distinct p from Patient p
-            where p.deletedAt is null and (
+            where p.deletedAt is null and p.archivedAt is null and (
                 exists (
                     select c.id from Consultation c
                     where c.patient = p and c.deletedAt is null and (
@@ -108,6 +108,7 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
             select distinct p.*
             from patients p
             where p.deleted_at is null
+              and p.archived_at is null
               and (
                 exists (
                     select 1 from appointments a
@@ -164,6 +165,7 @@ public interface PatientRepository extends JpaRepository<Patient, UUID> {
                 ('Couronne céramo-céramique', 'couronne céramo-céramique', 'couronne ceramo-ceramique')
             ) as treatment(label, accented_name, plain_name)
             where p.deleted_at is null
+              and p.archived_at is null
               and (
                 exists (
                     select 1 from appointments a

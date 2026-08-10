@@ -8,4 +8,5 @@ import java.util.UUID;
 
 public interface PatientPaymentRepository extends JpaRepository<PatientPayment, UUID> {
     List<PatientPayment> findAllByPatientIdOrderByPaymentDateDesc(UUID patientId);
+    boolean existsByInvoiceId(UUID invoiceId);
 }

@@ -10,6 +10,7 @@ import ma.cabinetdentaire.security.AuthenticatedUser;
 import ma.cabinetdentaire.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
 import static ma.cabinetdentaire.dto.LaboratoryRequests.*;
@@ -24,9 +25,21 @@ public class LaboratoryController {
     @PostMapping("/laboratories") @ResponseStatus(HttpStatus.CREATED)
     public LaboratoryResponse create(@Valid @RequestBody CreateLaboratory r,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
         return service.create(r,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
+    @PutMapping("/laboratories/{id}")
+    public LaboratoryResponse update(@PathVariable UUID id,@Valid @RequestBody CreateLaboratory r,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
+        return service.update(id,r,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
+    @DeleteMapping("/laboratories/{id}") @PreAuthorize("hasRole('DOCTEUR')") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID id,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
+        service.delete(id,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
     @PostMapping("/laboratory-jobs") @ResponseStatus(HttpStatus.CREATED)
     public JobResponse job(@Valid @RequestBody CreateJob r,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
         return service.createJob(r,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
+    @PutMapping("/laboratory-jobs/{id}")
+    public JobResponse updateJob(@PathVariable UUID id,@Valid @RequestBody CreateJob r,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
+        return service.updateJob(id,r,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
+    @DeleteMapping("/laboratory-jobs/{id}") @PreAuthorize("hasRole('DOCTEUR')") @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteJob(@PathVariable UUID id,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
+        service.deleteJob(id,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}
     @PostMapping("/laboratory-jobs/{id}/status")
     public JobResponse status(@PathVariable UUID id,@RequestParam LaboratoryJob.Status status,@AuthenticationPrincipal AuthenticatedUser p,HttpServletRequest h){
         return service.status(id,status,users.requireByUsername(p.username()),ClientRequestInfo.from(h));}

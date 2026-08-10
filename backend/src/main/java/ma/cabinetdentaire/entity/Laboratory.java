@@ -24,6 +24,18 @@ public class Laboratory extends BaseEntity {
         this.taxIdentifier = clean(taxIdentifier); this.observations = clean(observations); this.active = true;
     }
     private String clean(String v) { return v == null || v.isBlank() ? null : v.trim(); }
+    public void update(String name, String managerName, String phone, String email, String address,
+                       String city, String taxIdentifier, String observations) {
+        this.name = name.trim();
+        this.managerName = clean(managerName);
+        this.phone = clean(phone);
+        this.email = clean(email);
+        this.address = clean(address);
+        this.city = clean(city);
+        this.taxIdentifier = clean(taxIdentifier);
+        this.observations = clean(observations);
+    }
+    public void deactivate() { this.active = false; }
     public String getName() { return name; } public String getManagerName() { return managerName; }
     public String getPhone() { return phone; } public String getEmail() { return email; }
     public String getAddress() { return address; } public String getCity() { return city; }

@@ -82,6 +82,22 @@ public class PatientInvoice extends BaseEntity {
         recalculate();
     }
 
+    public void updateDraft(Type type, LocalDate date, String notes) {
+        if (status != Status.BROUILLON || paidAmount.signum() != 0) {
+            throw new IllegalStateException("Seul un document en brouillon sans paiement peut etre modifie.");
+        }
+        this.invoiceType = type;
+        this.invoiceDate = date;
+        this.notes = notes;
+        this.items.clear();
+        recalculate();
+        this.verificationStatus = VerificationStatus.EN_ATTENTE_VERIFICATION;
+    }
+
+    public boolean isEditableDraft() {
+        return status == Status.BROUILLON && paidAmount.signum() == 0;
+    }
+
     public void validate(Instant at) {
         if (items.isEmpty()) throw new IllegalStateException("Une facture doit contenir au moins une ligne.");
         this.status = Status.VALIDEE;

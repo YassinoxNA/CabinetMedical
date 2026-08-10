@@ -1,5 +1,5 @@
 ﻿import { ui } from "../styles";
-import { ChevronLeft, ChevronRight, FlaskConical, MapPin, Phone, Plus, Search, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, FlaskConical, MapPin, Pencil, Phone, Plus, Search, Trash2, X } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { useLanguage } from "../i18n/LanguageContext";
@@ -37,9 +37,11 @@ function createInitialJob() {
         jobType: "",
         tooth: "",
         shade: "",
+        description: "",
         sentDate,
         expectedDate: monthEndDate(sentDate),
-        laboratoryPrice: ""
+        laboratoryPrice: "",
+        notes: ""
     };
 }
 
@@ -47,7 +49,11 @@ const initialLabForm = {
     name: "",
     managerName: "",
     phone: "",
-    city: ""
+    city: "",
+    email: "",
+    address: "",
+    taxIdentifier: "",
+    observations: ""
 };
 
 export function LaboratoriesPage() {
@@ -87,6 +93,7 @@ export function LaboratoriesPage() {
     const [tab, setTab] = useState<"laboratories" | "jobs">("laboratories");
     const [dialog, setDialog] = useState<Dialog>(null);
     const [feedback, setFeedback] = useState("");
+    const [feedbackIsError, setFeedbackIsError] = useState(false);
     const [jobMonth, setJobMonth] = useState("");
     const [labQuery, setLabQuery] = useState("");
     const [labPage, setLabPage] = useState(1);
@@ -95,6 +102,8 @@ export function LaboratoriesPage() {
     const [jobPageSize, setJobPageSize] = useState<(typeof PAGE_SIZES)[number]>(5);
     const [labForm, setLabForm] = useState(initialLabForm);
     const [job, setJob] = useState(createInitialJob);
+    const [editingLab, setEditingLab] = useState<Laboratory | null>(null);
+    const [editingJob, setEditingJob] = useState<LaboratoryJob | null>(null);
 
     const jobMonthOptions = useMemo(() => Array.from(new Set(
         jobs.map((item) => item.expectedDate?.slice(0, 7)).filter(Boolean) as string[]
@@ -134,7 +143,7 @@ export function LaboratoriesPage() {
 
     useEffect(() => {
         void load().catch(() =>
-            setFeedback(text("Chargement des laboratoires impossible.", "تعذّر تحميل المختبرات."))
+            (setFeedbackIsError(true), setFeedback(text("Chargement des laboratoires impossible.", "تعذّر تحميل المختبرات.")))
         );
     }, []);
 
@@ -158,34 +167,114 @@ export function LaboratoriesPage() {
         event.preventDefault();
         try {
             if (dialog === "laboratory") {
-                await api.post("/laboratories", {
+                const payload = {
                     ...labForm,
-                    email: null,
-                    address: null
-                });
+                    email: labForm.email || null,
+                    address: labForm.address || null,
+                    taxIdentifier: labForm.taxIdentifier || null,
+                    observations: labForm.observations || null
+                };
+                if (editingLab) await api.put(`/laboratories/${editingLab.id}`, payload);
+                else await api.post("/laboratories", payload);
                 setLabForm(initialLabForm);
             }
             if (dialog === "job") {
-                await api.post("/laboratory-jobs", {
+                const payload = {
                     ...job,
                     laboratoryPrice: Number(job.laboratoryPrice)
-                });
+                };
+                if (editingJob) await api.put(`/laboratory-jobs/${editingJob.id}`, payload);
+                else await api.post("/laboratory-jobs", payload);
                 setJob(createInitialJob());
             }
             setFeedback(text("Opération laboratoire enregistrée.", "تم حفظ عملية المختبر."));
+            setFeedbackIsError(false);
             setDialog(null);
+            setEditingLab(null);
+            setEditingJob(null);
             await load();
         } catch (reason) {
             setFeedback((reason as { message?: string }).message || text(
                 "Enregistrement du laboratoire impossible.",
                 "تعذّر حفظ عملية المختبر."
             ));
+            setFeedbackIsError(true);
+        }
+    }
+
+    function openLaboratoryForm(lab?: Laboratory) {
+        setEditingLab(lab || null);
+        setEditingJob(null);
+        setLabForm(lab ? {
+            name: lab.name || "",
+            managerName: lab.managerName || "",
+            phone: lab.phone || "",
+            city: lab.city || "",
+            email: lab.email || "",
+            address: lab.address || "",
+            taxIdentifier: lab.taxIdentifier || "",
+            observations: lab.observations || ""
+        } : initialLabForm);
+        setFeedback("");
+        setFeedbackIsError(false);
+        setDialog("laboratory");
+    }
+
+    function openJobForm(item?: LaboratoryJob) {
+        setEditingJob(item || null);
+        setEditingLab(null);
+        setJob(item ? {
+            laboratoryId: item.laboratoryId,
+            patientId: item.patientId,
+            jobType: item.jobType,
+            tooth: item.tooth || "",
+            shade: item.shade || "",
+            description: item.description || "",
+            sentDate: item.sentDate || todayDate(),
+            expectedDate: item.expectedDate || monthEndDate(item.sentDate || todayDate()),
+            laboratoryPrice: String(item.laboratoryPrice),
+            notes: item.notes || ""
+        } : createInitialJob());
+        setFeedback("");
+        setFeedbackIsError(false);
+        setDialog("job");
+    }
+
+    async function removeLaboratory(lab: Laboratory) {
+        if (!window.confirm(text(
+            `Voulez-vous vraiment supprimer le laboratoire ${lab.name} ? Son historique sera conserve.`,
+            `هل تريد فعلاً حذف المختبر ${lab.name}؟ سيبقى تاريخه محفوظاً.`
+        ))) return;
+        try {
+            await api.delete(`/laboratories/${lab.id}`);
+            setFeedback(text("Laboratoire supprimé de la liste active.", "تم حذف المختبر من القائمة النشطة."));
+            setFeedbackIsError(false);
+            await load();
+        } catch (reason) {
+            setFeedback((reason as { message?: string }).message || text("Suppression du laboratoire impossible.", "تعذّر حذف المختبر."));
+            setFeedbackIsError(true);
+        }
+    }
+
+    async function removeJob(item: LaboratoryJob) {
+        if (!window.confirm(text(
+            `Voulez-vous vraiment supprimer ce travail de ${item.patientName} ? Cette action est irreversible.`,
+            `هل تريد فعلاً حذف عمل ${item.patientName}؟ لا يمكن التراجع عن هذا الإجراء.`
+        ))) return;
+        try {
+            await api.delete(`/laboratory-jobs/${item.id}`);
+            setFeedback(text("Travail de laboratoire supprimé.", "تم حذف عمل المختبر."));
+            setFeedbackIsError(false);
+            await load();
+        } catch (reason) {
+            setFeedback((reason as { message?: string }).message || text("Suppression du travail impossible.", "تعذّر حذف العمل."));
+            setFeedbackIsError(true);
         }
     }
 
     const dialogTitle = (value: Exclude<Dialog, null>) => ({
-        laboratory: text("Nouveau laboratoire", "مختبر جديد"),
-        job: text("Nouveau travail", "عمل جديد")
+        laboratory: editingLab ? text("Modifier le laboratoire", "تعديل المختبر") : text("Nouveau laboratoire", "مختبر جديد"),
+        job: editingJob ? text("Modifier le travail", "تعديل العمل") : text("Nouveau travail", "عمل جديد")
     } as Record<Exclude<Dialog, null>, string>)[value];
 
     const pagination = (
@@ -236,9 +325,7 @@ export function LaboratoriesPage() {
 
     return <>
       {feedback && <div className={ui(
-          feedback.includes("impossible") || feedback.includes("تعذّر")
-              ? "alert alert-error"
-              : "alert alert-success"
+          feedbackIsError ? "alert alert-error" : "alert alert-success"
       )}>{feedback}</div>}
 
       <div className="mb-4 grid grid-cols-[1fr_auto_1fr] items-end gap-4 max-[1000px]:grid-cols-1">
@@ -272,19 +359,13 @@ export function LaboratoriesPage() {
       <div className={`${ui("header-actions")} justify-self-end max-[1000px]:justify-self-start`}>
         <button
             className={ui("button ghost")}
-            onClick={() => {
-                setJob(createInitialJob());
-                setDialog("job");
-            }}
+            onClick={() => openJobForm()}
         >
           <Plus size={17}/> {text("Travail", "عمل")}
         </button>
         <button
             className={ui("button primary")}
-            onClick={() => {
-                setLabForm(initialLabForm);
-                setDialog("laboratory");
-            }}
+            onClick={() => openLaboratoryForm()}
         >
           <Plus size={17}/> {text("Laboratoire", "مختبر")}
         </button>
@@ -321,6 +402,10 @@ export function LaboratoriesPage() {
                 <span className={ui(`badge ${lab.active ? "badge-success" : "badge-neutral"}`)}>
                   {lab.active ? text("ACTIF", "نشط") : text("INACTIF", "غير نشط")}
                 </span>
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                  <button type="button" className={ui("button ghost")} onClick={() => openLaboratoryForm(lab)}><Pencil size={15}/> {text("Modifier", "تعديل")}</button>
+                  <button type="button" className={`${ui("button ghost")} text-red-600 hover:bg-red-50`} onClick={() => void removeLaboratory(lab)}><Trash2 size={15}/> {text("Supprimer", "حذف")}</button>
+                </div>
               </article>)}
             </div>}
             <div className="mt-4 border-t border-slate-100 pt-4">
@@ -348,6 +433,7 @@ export function LaboratoriesPage() {
                           <th>{text("Travail", "العمل")}</th>
                           <th>{text("Date prévue", "التاريخ المتوقع")}</th>
                           <th>{text("Prix", "السعر")}</th>
+                          <th>{text("Actions", "الإجراءات")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -357,6 +443,10 @@ export function LaboratoriesPage() {
                           <td>{jobTypeLabel(item.jobType)} · {text("dent", "السن")} {item.tooth || "—"}</td>
                           <td>{formatDate(item.expectedDate)}</td>
                           <td>{money.format(Number(item.laboratoryPrice))}</td>
+                          <td><div className="flex items-center gap-2">
+                            <button type="button" className={ui("icon-button")} title={text("Modifier", "تعديل")} onClick={() => openJobForm(item)}><Pencil className="size-4"/></button>
+                            <button type="button" className={`${ui("icon-button")} text-red-600 hover:bg-red-50`} title={text("Supprimer", "حذف")} onClick={() => void removeJob(item)}><Trash2 className="size-4"/></button>
+                          </div></td>
                         </tr>)}
                       </tbody>
                     </table>
@@ -379,7 +469,7 @@ export function LaboratoriesPage() {
               type="button"
               className={ui("icon-button")}
               aria-label={text("Fermer", "إغلاق")}
-              onClick={() => setDialog(null)}
+              onClick={() => { setDialog(null); setEditingLab(null); setEditingJob(null); }}
             >
               <X size={18}/>
             </button>
@@ -423,6 +513,18 @@ export function LaboratoriesPage() {
                 onChange={(event) => setLabForm({ ...labForm, city: event.target.value })}
               />
             </label>
+            <label>
+              {text("E-mail", "البريد الإلكتروني")}
+              <input type="email" value={labForm.email} onChange={(event) => setLabForm({ ...labForm, email: event.target.value })}/>
+            </label>
+            <label>
+              {text("Adresse", "العنوان")}
+              <input value={labForm.address} onChange={(event) => setLabForm({ ...labForm, address: event.target.value })}/>
+            </label>
+            <label className="col-span-full">
+              {text("Observations", "ملاحظات")}
+              <textarea value={labForm.observations} onChange={(event) => setLabForm({ ...labForm, observations: event.target.value })}/>
+            </label>
           </div>}
 
           {dialog === "job" && <div className={ui("form-grid")}>
@@ -455,6 +557,12 @@ export function LaboratoriesPage() {
                 <option value="">{eligibleTreatments.length
                   ? text("Sélectionner un patient et son traitement", "اختر المريض وعلاجه")
                   : text("Aucun patient avec un traitement autorisé", "لا يوجد مريض بأحد العلاجات المسموح بها")}</option>
+                {editingJob && !eligibleTreatments.some((item) =>
+                    item.patientId === editingJob.patientId && item.treatmentType === editingJob.jobType) && (
+                  <option value={`${editingJob.patientId}::${editingJob.jobType}`}>
+                    {editingJob.patientNumber} · {editingJob.patientName} · {jobTypeLabel(editingJob.jobType)}
+                  </option>
+                )}
                 {eligibleTreatments.map((item) => (
                   <option key={`${item.patientId}-${item.treatmentType}`} value={`${item.patientId}::${item.treatmentType}`}>
                     {item.patientNumber} · {item.firstName} {item.lastName} · {jobTypeLabel(item.treatmentType)}
@@ -479,6 +587,10 @@ export function LaboratoriesPage() {
                 value={job.shade}
                 onChange={(event) => setJob({ ...job, shade: event.target.value })}
               />
+            </label>
+            <label className="col-span-full">
+              {text("Description", "الوصف")}
+              <textarea value={job.description} onChange={(event) => setJob({ ...job, description: event.target.value })}/>
             </label>
             <label>
               {text("Prix laboratoire (MAD)", "سعر المختبر (درهم)")} <b className="text-red-500">*</b>
@@ -514,14 +626,18 @@ export function LaboratoriesPage() {
                 onChange={(event) => setJob({ ...job, expectedDate: event.target.value })}
               />
             </label>
+            <label className="col-span-full">
+              {text("Notes", "ملاحظات")}
+              <textarea value={job.notes} onChange={(event) => setJob({ ...job, notes: event.target.value })}/>
+            </label>
           </div>}
 
           <div className={ui("modal-actions")}>
-            <button type="button" className={ui("button ghost")} onClick={() => setDialog(null)}>
+            <button type="button" className={ui("button ghost")} onClick={() => { setDialog(null); setEditingLab(null); setEditingJob(null); }}>
               {text("Annuler", "إلغاء")}
             </button>
             <button className={ui("button primary")}>
-              {text("Enregistrer", "حفظ")}
+              {editingLab || editingJob ? text("Enregistrer les modifications", "حفظ التعديلات") : text("Enregistrer", "حفظ")}
             </button>
           </div>
         </form>

@@ -41,6 +41,21 @@ public class LaboratoryJob extends BaseEntity {
         if (status == Status.RECU && receivedDate == null) receivedDate = LocalDate.now();
         this.verificationStatus = VerificationStatus.EN_ATTENTE_VERIFICATION;
     }
+    public void update(Laboratory laboratory, Patient patient, String jobType, String tooth,
+                       String shade, String description, LocalDate sentDate, LocalDate expectedDate,
+                       BigDecimal price, String notes) {
+        this.laboratory = laboratory;
+        this.patient = patient;
+        this.jobType = jobType.trim();
+        this.tooth = tooth;
+        this.shade = shade;
+        this.description = description;
+        this.sentDate = sentDate;
+        this.expectedDate = expectedDate;
+        this.laboratoryPrice = price;
+        this.notes = notes;
+        this.verificationStatus = VerificationStatus.EN_ATTENTE_VERIFICATION;
+    }
     public Laboratory getLaboratory() { return laboratory; } public Patient getPatient() { return patient; }
     public String getJobType() { return jobType; } public String getTooth() { return tooth; }
     public String getShade() { return shade; } public String getDescription() { return description; }

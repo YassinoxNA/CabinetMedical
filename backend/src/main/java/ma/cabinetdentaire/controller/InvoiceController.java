@@ -12,6 +12,7 @@ import ma.cabinetdentaire.security.AuthenticatedUser;
 import ma.cabinetdentaire.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -33,6 +34,21 @@ public class InvoiceController {
     }
     @GetMapping("/patient-invoices/{id}")
     public InvoiceResponse get(@PathVariable UUID id) { return service.get(id); }
+    @PutMapping("/patient-invoices/{id}")
+    public InvoiceResponse update(@PathVariable UUID id,
+                                  @Valid @RequestBody InvoiceRequest request,
+                                  @AuthenticationPrincipal AuthenticatedUser principal,
+                                  HttpServletRequest http) {
+        return service.update(id, request, users.requireByUsername(principal.username()), ClientRequestInfo.from(http));
+    }
+    @DeleteMapping("/patient-invoices/{id}")
+    @PreAuthorize("hasRole('DOCTEUR')")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID id,
+                       @AuthenticationPrincipal AuthenticatedUser principal,
+                       HttpServletRequest http) {
+        service.delete(id, users.requireByUsername(principal.username()), ClientRequestInfo.from(http));
+    }
     @GetMapping("/patients/{patientId}/invoices")
     public List<InvoiceResponse> patientInvoices(@PathVariable UUID patientId) {
         return service.byPatient(patientId);
