@@ -67,6 +67,7 @@ export function InvoicesPage() {
     const invoiceTotal = Number.isFinite(invoiceQuantity) && Number.isFinite(invoiceUnitPrice)
         ? Math.max(0, Math.round(invoiceQuantity * invoiceUnitPrice * 100) / 100)
         : 0;
+    const minimumEditableTotal = Number(editingInvoice?.paidAmount ?? 0);
     const invoiceIsValid = Boolean(
         patientId
         && invoiceForm.type
@@ -74,6 +75,7 @@ export function InvoicesPage() {
         && invoiceForm.description.trim()
         && invoiceQuantity > 0
         && invoiceUnitPrice > 0
+        && invoiceTotal >= minimumEditableTotal
     );
     useEffect(() => { api.get<Page<Patient>>("/patients?page=0&size=100").then((page) => setPatients(page.content)); }, []);
     async function load(id = patientId) {
@@ -92,7 +94,9 @@ export function InvoicesPage() {
     async function createInvoice(event: FormEvent) {
         event.preventDefault();
         if (!invoiceIsValid) {
-            setFeedback(text("Tous les champs du document sont obligatoires.", "جميع حقول المستند إلزامية."));
+            setFeedback(minimumEditableTotal > 0 && invoiceTotal < minimumEditableTotal
+                ? text(`Le total ne peut pas être inférieur au montant déjà payé (${money.format(minimumEditableTotal)}).`, `لا يمكن أن يكون المجموع أقل من المبلغ المؤدى (${money.format(minimumEditableTotal)}).`)
+                : text("Tous les champs du document sont obligatoires.", "جميع حقول المستند إلزامية."));
             setFeedbackIsError(true);
             return;
         }
@@ -141,13 +145,20 @@ export function InvoicesPage() {
         setDialog("invoice");
     }
     async function removeInvoice(invoice: Invoice) {
+        const isDraft = invoice.status === "BROUILLON";
         if (!window.confirm(text(
-            `Voulez-vous vraiment supprimer le brouillon ${invoice.invoiceNumber} ? Cette action est irreversible.`,
-            `هل تريد فعلاً حذف المسودة ${invoice.invoiceNumber}؟ لا يمكن التراجع عن هذا الإجراء.`
+            isDraft
+                ? `Voulez-vous vraiment supprimer le brouillon ${invoice.invoiceNumber} ?`
+                : `Voulez-vous vraiment annuler ${invoice.invoiceNumber} ? Ses paiements seront annulés et le document restera dans l'historique.`,
+            isDraft
+                ? `هل تريد فعلاً حذف المسودة ${invoice.invoiceNumber}؟`
+                : `هل تريد فعلاً إلغاء ${invoice.invoiceNumber}؟ سيتم إلغاء دفعاتها وسيبقى المستند في السجل.`
         ))) return;
         try {
             await api.delete(`/patient-invoices/${invoice.id}`);
-            setFeedback(text("Brouillon supprimé.", "تم حذف المسودة."));
+            setFeedback(isDraft
+                ? text("Brouillon supprimé.", "تم حذف المسودة.")
+                : text("Facture annulée. Ses paiements ont été retirés des totaux actifs.", "تم إلغاء الفاتورة وإزالة دفعاتها من المجاميع الحالية."));
             setFeedbackIsError(false);
             await load();
         } catch (reason) {
@@ -215,7 +226,8 @@ export function InvoicesPage() {
             <div className={ui("invoice-cards")}>{invoices.map((invoice) => {
           const remaining = Number(invoice.remainingAmount);
           const isPayableInvoice = invoice.type === "FACTURE" && !["BROUILLON", "ANNULEE"].includes(invoice.status);
-          const canEditDraft = invoice.status === "BROUILLON" && invoice.items.length === 1;
+          const canEdit = invoice.status !== "ANNULEE" && invoice.items.length === 1;
+          const canRemove = invoice.status !== "ANNULEE";
           return <article key={invoice.id}><div className={ui("document-icon")}><ReceiptText /></div>
           <div><span className={ui("eyebrow")}>{invoiceTypeLabel(invoice.type)}</span><h3>{invoice.invoiceNumber}</h3><small>{formatDate(invoice.invoiceDate)}</small></div>
           <div className={`${ui("invoice-amount")} min-w-[250px]`}>
@@ -238,10 +250,10 @@ export function InvoicesPage() {
             </>}
           </div>
           <StatusBadge value={invoice.status}/>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 p-1.5 shadow-sm">
             <button className={ui("icon-button")} title={text("Télécharger le PDF", "تنزيل PDF")} onClick={() => api.download(`/patient-invoices/${invoice.id}/pdf`, `${invoice.invoiceNumber}.pdf`)}><Download /></button>
-            <button type="button" className={ui("icon-button")} disabled={!canEditDraft} title={canEditDraft ? text("Modifier", "تعديل") : text("Seul un brouillon simple peut être modifié", "يمكن تعديل المسودة البسيطة فقط")} onClick={() => openInvoiceForm(invoice)}><Pencil className="size-4"/></button>
-            <button type="button" className={`${ui("icon-button")} text-red-600 hover:bg-red-50`} disabled={invoice.status !== "BROUILLON"} title={invoice.status === "BROUILLON" ? text("Supprimer", "حذف") : text("Seul un brouillon peut être supprimé", "يمكن حذف المسودة فقط")} onClick={() => void removeInvoice(invoice)}><Trash2 className="size-4"/></button>
+            <button type="button" className={`${ui("icon-button")} text-teal-700 hover:bg-teal-50`} disabled={!canEdit} aria-label={text("Modifier le document", "تعديل المستند")} title={canEdit ? text("Modifier", "تعديل") : text("Document non modifiable", "المستند غير قابل للتعديل")} onClick={() => openInvoiceForm(invoice)}><Pencil className="size-4"/></button>
+            <button type="button" className={`${ui("icon-button")} text-red-600 hover:bg-red-50`} disabled={!canRemove} aria-label={invoice.status === "BROUILLON" ? text("Supprimer le brouillon", "حذف المسودة") : text("Annuler la facture", "إلغاء الفاتورة")} title={invoice.status === "BROUILLON" ? text("Supprimer", "حذف") : invoice.status === "ANNULEE" ? text("Facture déjà annulée", "الفاتورة ملغاة") : text("Annuler la facture", "إلغاء الفاتورة")} onClick={() => void removeInvoice(invoice)}><Trash2 className="size-4"/></button>
           </div>
         </article>;})}</div>}
     </section>
@@ -275,6 +287,7 @@ export function InvoicesPage() {
                 <FileText aria-hidden="true" className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400"/>
                 <select
                     required
+                    disabled={Boolean(editingInvoice && editingInvoice.status !== "BROUILLON")}
                     className="h-12 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-10 pr-10 text-sm font-medium text-slate-800 outline-none transition focus:border-teal-500 focus:ring-3 focus:ring-teal-100"
                     value={invoiceForm.type}
                     onChange={(e) => setInvoiceForm({ ...invoiceForm, type: e.target.value })}
@@ -316,7 +329,7 @@ export function InvoicesPage() {
                     required
                     autoFocus
                     type="number"
-                    min="0.01"
+                    min={Math.max(0.01, minimumEditableTotal)}
                     step="0.01"
                     inputMode="decimal"
                     className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm font-medium text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-teal-500 focus:ring-3 focus:ring-teal-100"

@@ -61,11 +61,12 @@ public class InvoiceService {
                     "Le patient d'un document existant ne peut pas etre remplace.", HttpStatus.BAD_REQUEST);
         }
         try {
-            invoice.updateDraft(request.type(), request.invoiceDate(), request.notes());
+            invoice.beginUpdate(request.type(), request.invoiceDate(), request.notes());
+            request.items().forEach(i -> invoice.addItem(i.description(), i.tooth(), i.quantity(), i.unitPrice()));
+            invoice.finishUpdate();
         } catch (IllegalStateException e) {
             throw new BusinessException("INVOICE_NOT_EDITABLE", e.getMessage(), HttpStatus.CONFLICT);
         }
-        request.items().forEach(i -> invoice.addItem(i.description(), i.tooth(), i.quantity(), i.unitPrice()));
         audit.record(actor, "INVOICE_UPDATED", "INVOICE", "PATIENT_INVOICE", id,
                 "Modification de " + invoice.getInvoiceNumber() + ".", client);
         return InvoiceMapper.toResponse(invoice);
@@ -74,14 +75,23 @@ public class InvoiceService {
     @Transactional
     public void delete(UUID id, User actor, ClientRequestInfo client) {
         PatientInvoice invoice = require(id);
-        if (!invoice.isEditableDraft() || payments.existsByInvoiceId(id)) {
-            throw new BusinessException("INVOICE_NOT_DELETABLE",
-                    "Seul un document en brouillon sans paiement peut etre supprime.", HttpStatus.CONFLICT);
-        }
         String number = invoice.getInvoiceNumber();
-        invoices.delete(invoice);
-        audit.record(actor, "INVOICE_DELETED", "INVOICE", "PATIENT_INVOICE", id,
-                "Suppression du brouillon " + number + ".", client);
+        if (invoice.isEditableDraft() && !payments.existsByInvoiceIdAndCancelledAtIsNull(id)) {
+            invoices.delete(invoice);
+            audit.record(actor, "INVOICE_DELETED", "INVOICE", "PATIENT_INVOICE", id,
+                    "Suppression du brouillon " + number + ".", client);
+            return;
+        }
+        try {
+            var cancelledAt = clock.instant();
+            payments.findAllByInvoiceIdAndCancelledAtIsNull(id)
+                    .forEach(payment -> payment.cancel(cancelledAt));
+            invoice.cancel(cancelledAt);
+        } catch (IllegalStateException e) {
+            throw new BusinessException("INVOICE_NOT_DELETABLE", e.getMessage(), HttpStatus.CONFLICT);
+        }
+        audit.record(actor, "INVOICE_CANCELLED", "INVOICE", "PATIENT_INVOICE", id,
+                "Annulation de " + number + " et de ses reglements actifs.", client);
     }
 
     @Transactional
@@ -121,7 +131,7 @@ public class InvoiceService {
 
     @Transactional(readOnly = true)
     public List<PaymentResponse> paymentsByPatient(UUID patientId) {
-        return payments.findAllByPatientIdOrderByPaymentDateDesc(patientId)
+        return payments.findAllByPatientIdAndCancelledAtIsNullOrderByPaymentDateDesc(patientId)
                 .stream().map(PaymentMapper::toResponse).toList();
     }
 

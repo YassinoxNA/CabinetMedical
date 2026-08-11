@@ -37,6 +37,7 @@ public class PatientPayment {
     @Enumerated(EnumType.STRING) @Column(name = "verification_status", nullable = false)
     private VerificationStatus verificationStatus;
     @CreationTimestamp @Column(name = "created_at", updatable = false) private Instant createdAt;
+    @Column(name = "cancelled_at") private Instant cancelledAt;
     @Column(name = "created_by") private UUID createdBy;
     @Version private long version;
     protected PatientPayment() {}
@@ -57,4 +58,8 @@ public class PatientPayment {
     public String getReference() { return reference; }
     public String getNotes() { return notes; }
     public VerificationStatus getVerificationStatus() { return verificationStatus; }
+    public Instant getCancelledAt() { return cancelledAt; }
+    public void cancel(Instant at) {
+        if (cancelledAt == null) cancelledAt = at;
+    }
 }

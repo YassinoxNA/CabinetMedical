@@ -70,11 +70,43 @@ class PatientInvoiceTest {
     }
 
     @Test
-    void rejectsUpdateAfterValidation() {
+    void updatesValidatedInvoiceWithoutLosingRecordedPayment() {
         PatientInvoice invoice = invoice();
         invoice.validate(Instant.now());
+        invoice.applyPayment(new BigDecimal("200"));
 
-        assertThrows(IllegalStateException.class, () -> invoice.updateDraft(
-                PatientInvoice.Type.DEVIS, LocalDate.now(), null));
+        invoice.beginUpdate(PatientInvoice.Type.FACTURE, LocalDate.of(2026, 8, 11), "Corrigee");
+        invoice.addItem("Consultation corrigee", "16", BigDecimal.ONE, new BigDecimal("650"));
+        invoice.finishUpdate();
+
+        assertEquals(new BigDecimal("650"), invoice.getTotalAmount());
+        assertEquals(new BigDecimal("200"), invoice.getPaidAmount());
+        assertEquals(new BigDecimal("450"), invoice.getRemainingAmount());
+        assertEquals(PatientInvoice.Status.PARTIELLEMENT_PAYEE, invoice.getStatus());
+    }
+
+    @Test
+    void rejectsValidatedInvoiceTotalBelowRecordedPayment() {
+        PatientInvoice invoice = invoice();
+        invoice.validate(Instant.now());
+        invoice.applyPayment(new BigDecimal("400"));
+
+        invoice.beginUpdate(PatientInvoice.Type.FACTURE, LocalDate.now(), null);
+        invoice.addItem("Montant trop faible", null, BigDecimal.ONE, new BigDecimal("399"));
+
+        assertThrows(IllegalStateException.class, invoice::finishUpdate);
+    }
+
+    @Test
+    void cancellationRemovesAmountsFromActiveAccounting() {
+        PatientInvoice invoice = invoice();
+        invoice.validate(Instant.now());
+        invoice.applyPayment(new BigDecimal("200"));
+
+        invoice.cancel(Instant.now());
+
+        assertEquals(PatientInvoice.Status.ANNULEE, invoice.getStatus());
+        assertEquals(BigDecimal.ZERO, invoice.getPaidAmount());
+        assertEquals(BigDecimal.ZERO, invoice.getRemainingAmount());
     }
 }

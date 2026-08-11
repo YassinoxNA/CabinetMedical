@@ -94,6 +94,46 @@ public class PatientInvoice extends BaseEntity {
         this.verificationStatus = VerificationStatus.EN_ATTENTE_VERIFICATION;
     }
 
+    public void beginUpdate(Type type, LocalDate date, String notes) {
+        if (status == Status.ANNULEE) {
+            throw new IllegalStateException("Un document annule ne peut pas etre modifie.");
+        }
+        if (status != Status.BROUILLON && type != invoiceType) {
+            throw new IllegalStateException("Le type d'un document valide ne peut pas etre modifie.");
+        }
+        this.invoiceType = type;
+        this.invoiceDate = date;
+        this.notes = notes;
+        this.items.clear();
+        recalculate();
+        this.verificationStatus = VerificationStatus.EN_ATTENTE_VERIFICATION;
+    }
+
+    public void finishUpdate() {
+        if (items.isEmpty()) {
+            throw new IllegalStateException("Un document doit contenir au moins une ligne.");
+        }
+        if (totalAmount.compareTo(paidAmount) < 0) {
+            throw new IllegalStateException("Le nouveau total ne peut pas etre inferieur au montant deja paye.");
+        }
+        remainingAmount = totalAmount.subtract(paidAmount);
+        if (status != Status.BROUILLON) {
+            status = paidAmount.signum() == 0
+                    ? Status.VALIDEE
+                    : remainingAmount.signum() == 0 ? Status.SOLDEE : Status.PARTIELLEMENT_PAYEE;
+        }
+    }
+
+    public void cancel(Instant at) {
+        if (status == Status.ANNULEE) {
+            throw new IllegalStateException("Ce document est deja annule.");
+        }
+        this.status = Status.ANNULEE;
+        this.cancelledAt = at;
+        this.paidAmount = BigDecimal.ZERO;
+        this.remainingAmount = BigDecimal.ZERO;
+    }
+
     public boolean isEditableDraft() {
         return status == Status.BROUILLON && paidAmount.signum() == 0;
     }
