@@ -19,8 +19,25 @@ class AppointmentRepositoryContractTest {
         assertThat(query)
                 .contains("a.startsAt < :end")
                 .contains("a.endsAt > :start")
+                .contains("a.patient.deletedAt is null")
+                .contains("a.patient.archivedAt is null")
                 .contains("AppointmentStatus.ANNULE")
                 .contains("AppointmentStatus.ABSENT")
                 .contains("AppointmentStatus.REPORTE");
+    }
+
+    @Test
+    void calendarOnlyReturnsAppointmentsForActivePatients() throws Exception {
+        Method method = AppointmentRepository.class.getMethod(
+                "findAllByStartsAtGreaterThanEqualAndStartsAtLessThanOrderByStartsAt",
+                Instant.class, Instant.class);
+        String query = method.getAnnotation(Query.class).value();
+
+        assertThat(query)
+                .contains("a.patient.deletedAt is null")
+                .contains("a.patient.archivedAt is null")
+                .contains("a.startsAt >= :from")
+                .contains("a.startsAt < :to")
+                .contains("order by a.startsAt");
     }
 }

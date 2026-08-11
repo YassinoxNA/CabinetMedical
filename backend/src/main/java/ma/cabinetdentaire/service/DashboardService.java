@@ -46,40 +46,60 @@ public class DashboardService {
                           and created_at >= ? and created_at < ?
                         """,
                         monthStart, nextMonthStart),
-                count("select count(*) from appointments where starts_at >= ? and starts_at < ?",
+                count("""
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ?
+                        """,
                         todayStart, tomorrowStart),
                 count("""
-                        select count(*) from appointments
-                        where starts_at >= ? and starts_at < ?
-                          and status in ('PLANIFIE','CONFIRME','PATIENT_ARRIVE','EN_CONSULTATION')
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ?
+                          and a.status in ('PLANIFIE','CONFIRME','PATIENT_ARRIVE','EN_CONSULTATION')
                         """, todayStart, tomorrowStart),
                 count("""
-                        select count(*) from appointments
-                        where starts_at >= ? and starts_at < ? and status = 'TERMINE'
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ? and a.status = 'TERMINE'
                         """, todayStart, tomorrowStart),
                 count("""
-                        select count(*) from appointments
-                        where starts_at >= ? and starts_at < ? and status in ('ANNULE','ABSENT')
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ? and a.status in ('ANNULE','ABSENT')
                         """, todayStart, tomorrowStart),
                 count("""
-                        select count(*) from consultations
-                        where deleted_at is null and consultation_at >= ? and consultation_at < ?
+                        select count(*) from consultations c
+                        join patients p on p.id = c.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
                         """, monthStart, nextMonthStart),
                 amount("""
-                        select coalesce(sum(total_amount), 0) from patient_invoices
-                        where invoice_date >= ? and invoice_date < ? and status <> 'ANNULEE'
+                        select coalesce(sum(i.total_amount), 0) from patient_invoices i
+                        join patients p on p.id = i.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
                         """, monthStartDate, monthStartDate.plusMonths(1)),
                 amount("""
-                        select coalesce(sum(amount), 0) from patient_payments
-                        where cancelled_at is null and payment_date >= ? and payment_date < ?
+                        select coalesce(sum(pp.amount), 0) from patient_payments pp
+                        join patients p on p.id = pp.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and pp.cancelled_at is null and pp.payment_date >= ? and pp.payment_date < ?
                         """, monthStart, nextMonthStart),
                 amount("""
-                        select coalesce(sum(remaining_amount), 0) from patient_invoices
-                        where status <> 'ANNULEE'
+                        select coalesce(sum(i.remaining_amount), 0) from patient_invoices i
+                        join patients p on p.id = i.patient_id
+                        where p.deleted_at is null and p.archived_at is null and i.status <> 'ANNULEE'
                         """),
                 count("""
-                        select count(*) from laboratory_jobs
-                        where status not in ('TERMINE','ANNULE','POSE_AU_PATIENT')
+                        select count(*) from laboratory_jobs lj
+                        join patients p on p.id = lj.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and lj.status not in ('TERMINE','ANNULE','POSE_AU_PATIENT')
                         """),
                 dailyActivity(today),
                 newPatientsByWeek(monthStartDate, today),
@@ -121,10 +141,12 @@ public class DashboardService {
         categories.put("Autres", 0L);
 
         jdbc.query("""
-                        select coalesce(disease_type, '') as type, count(*) as total
-                        from consultations
-                        where deleted_at is null and consultation_at >= ? and consultation_at < ?
-                        group by coalesce(disease_type, '')
+                        select coalesce(c.disease_type, '') as type, count(*) as total
+                        from consultations c
+                        join patients p on p.id = c.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
+                        group by coalesce(c.disease_type, '')
                         """,
                 preparedStatement -> {
                     preparedStatement.setTimestamp(1, java.sql.Timestamp.from(monthStart));
@@ -172,8 +194,10 @@ public class DashboardService {
                     startDate.getMonth().getDisplayName(
                             java.time.format.TextStyle.SHORT, Locale.FRENCH),
                     amount("""
-                            select coalesce(sum(amount), 0) from patient_payments
-                            where cancelled_at is null and payment_date >= ? and payment_date < ?
+                            select coalesce(sum(pp.amount), 0) from patient_payments pp
+                            join patients p on p.id = pp.patient_id
+                            where p.deleted_at is null and p.archived_at is null
+                              and pp.cancelled_at is null and pp.payment_date >= ? and pp.payment_date < ?
                             """,
                             startDate.atStartOfDay(CABINET_ZONE).toInstant(),
                             endDate.atStartOfDay(CABINET_ZONE).toInstant())
@@ -192,10 +216,17 @@ public class DashboardService {
             activity.add(new DashboardStatsResponse.DailyActivity(
                     date,
                     FRENCH_DAY_LABELS.get(date.getDayOfWeek().getValue() - 1),
-                    count("select count(*) from appointments where starts_at >= ? and starts_at < ?", from, to),
                     count("""
-                            select count(*) from consultations
-                            where deleted_at is null and consultation_at >= ? and consultation_at < ?
+                            select count(*) from appointments a
+                            join patients p on p.id = a.patient_id
+                            where p.deleted_at is null and p.archived_at is null
+                              and a.starts_at >= ? and a.starts_at < ?
+                            """, from, to),
+                    count("""
+                            select count(*) from consultations c
+                            join patients p on p.id = c.patient_id
+                            where p.deleted_at is null and p.archived_at is null
+                              and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
                             """, from, to)
             ));
         }

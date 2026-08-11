@@ -139,7 +139,7 @@ export function PatientsPage() {
 
     async function removePatient(patient: Patient) {
         const confirmed = window.confirm(text(
-            `Voulez-vous vraiment retirer ${patient.firstName} ${patient.lastName} de la liste active ? Son historique medical sera conserve.`,
+            `Voulez-vous vraiment retirer ${patient.firstName} ${patient.lastName} ? Ses rendez-vous disparaîtront du calendrier actif, mais son historique médical restera conservé.`,
             `هل تريد فعلاً إزالة ${patient.firstName} ${patient.lastName} من القائمة النشطة؟ سيبقى سجله الطبي محفوظاً.`
         ));
         if (!confirmed) return;

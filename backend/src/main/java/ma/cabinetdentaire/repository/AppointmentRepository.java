@@ -14,6 +14,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     @Query("""
             select (count(a) > 0) from Appointment a
             where a.patient.id = :patientId
+              and a.patient.deletedAt is null
+              and a.patient.archivedAt is null
               and a.status not in (ma.cabinetdentaire.entity.AppointmentStatus.ANNULE,
                                    ma.cabinetdentaire.entity.AppointmentStatus.ABSENT,
                                    ma.cabinetdentaire.entity.AppointmentStatus.REPORTE)
@@ -23,6 +25,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     @Query("""
             select (count(a) > 0) from Appointment a
             where a.patient.id = :patientId
+              and a.patient.deletedAt is null
+              and a.patient.archivedAt is null
               and a.startsAt > :after
               and a.status in (ma.cabinetdentaire.entity.AppointmentStatus.PLANIFIE,
                                ma.cabinetdentaire.entity.AppointmentStatus.CONFIRME,
@@ -34,6 +38,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     @Query("""
             select a from Appointment a
             where a.startsAt < :end and a.endsAt > :start
+              and a.patient.deletedAt is null
+              and a.patient.archivedAt is null
               and a.status not in (ma.cabinetdentaire.entity.AppointmentStatus.ANNULE,
                                    ma.cabinetdentaire.entity.AppointmentStatus.ABSENT,
                                    ma.cabinetdentaire.entity.AppointmentStatus.REPORTE)
@@ -43,6 +49,8 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     @Query("""
             select a from Appointment a
             where a.startsAt < :end and a.endsAt > :start
+              and a.patient.deletedAt is null
+              and a.patient.archivedAt is null
               and a.status not in (ma.cabinetdentaire.entity.AppointmentStatus.ANNULE,
                                    ma.cabinetdentaire.entity.AppointmentStatus.ABSENT,
                                    ma.cabinetdentaire.entity.AppointmentStatus.REPORTE)
@@ -51,6 +59,13 @@ public interface AppointmentRepository extends JpaRepository<Appointment, UUID> 
     List<Appointment> findConflictsExcluding(@Param("start") Instant start, @Param("end") Instant end,
                                              @Param("excludedId") UUID excludedId);
 
+    @Query("""
+            select a from Appointment a
+            where a.patient.deletedAt is null
+              and a.patient.archivedAt is null
+              and a.startsAt >= :from and a.startsAt < :to
+            order by a.startsAt
+            """)
     List<Appointment> findAllByStartsAtGreaterThanEqualAndStartsAtLessThanOrderByStartsAt(
-            Instant from, Instant to);
+            @Param("from") Instant from, @Param("to") Instant to);
 }
