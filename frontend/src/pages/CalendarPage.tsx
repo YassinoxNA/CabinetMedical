@@ -418,6 +418,7 @@ export function CalendarPage() {
   }
 
   function edit(item: Appointment) {
+    if (!canEditAppointment(item)) return;
     const startsAt = new Date(item.startsAt);
     setEditing(item);
     setFeedback("");
@@ -512,6 +513,11 @@ export function CalendarPage() {
       && format(new Date(item.startsAt), "yyyy-MM-dd") > todayKey;
   }
 
+  function canEditAppointment(item: Appointment) {
+    return !closedStatuses.has(item.status)
+      && format(new Date(item.startsAt), "yyyy-MM-dd") > todayKey;
+  }
+
   function requestCancellation(item: Appointment) {
     if (!canCancelAppointment(item)) {
       setFeedback(text(
@@ -556,6 +562,7 @@ export function CalendarPage() {
   ) {
     const theme = getTreatmentTheme(item);
     const isClosed = closedStatuses.has(item.status);
+    const canEdit = canEditAppointment(item);
     const pending = actionPendingId === item.id;
     return (
       <div
@@ -567,7 +574,7 @@ export function CalendarPage() {
           marginLeft: `calc(${laneIndex * 100 / laneCount}% + 3px)`
         }}
       >
-        <button type="button" className="block h-full w-full overflow-hidden text-left" disabled={isClosed} onClick={() => edit(item)}>
+        <button type="button" className="block h-full w-full overflow-hidden text-left" disabled={!canEdit} onClick={() => edit(item)}>
           <span className="flex min-w-0 items-center gap-1.5">
             <strong className="min-w-0 flex-1 truncate text-[10px] font-extrabold text-slate-950">
               {item.patientName}
@@ -582,7 +589,7 @@ export function CalendarPage() {
         </button>
         {!isClosed && rowSpan >= 2 && (
           <div className="absolute bottom-1.5 right-1.5 hidden items-center gap-1 group-hover:flex">
-            <button type="button" title={text("Modifier", "تعديل")} disabled={pending}
+            <button type="button" title={text("Modifier", "تعديل")} disabled={pending || !canEdit}
               className="grid size-6 place-items-center rounded-md bg-white/95 text-blue-700 shadow" onClick={() => edit(item)}>
               <Pencil size={12}/>
             </button>
@@ -592,10 +599,12 @@ export function CalendarPage() {
                 {pending ? <LoaderCircle className="animate-spin" size={12}/> : <UserCheck size={12}/>} 
               </button>
             )}
-            <button type="button" title={text("Annuler", "إلغاء")} disabled={pending || !canCancelAppointment(item)}
-              className="grid size-6 place-items-center rounded-md bg-white/90 text-rose-700 shadow" onClick={() => requestCancellation(item)}>
-              <XCircle size={12}/>
-            </button>
+            {canCancelAppointment(item) && (
+              <button type="button" title={text("Annuler", "إلغاء")} disabled={pending}
+                className="grid size-6 place-items-center rounded-md bg-white/90 text-rose-700 shadow" onClick={() => requestCancellation(item)}>
+                <XCircle size={12}/>
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -705,7 +714,7 @@ export function CalendarPage() {
             <span className="mt-2 grid gap-1">
               {daily.slice(0, 3).map((item) => {
                 const theme = getTreatmentTheme(item);
-                return <button type="button" onClick={() => edit(item)} key={item.id} className={`truncate rounded-md border px-2 py-1 text-left text-[9px] font-semibold shadow-sm hover:shadow ${theme.card}`}>
+                return <button type="button" disabled={!canEditAppointment(item)} onClick={() => edit(item)} key={item.id} className={`truncate rounded-md border px-2 py-1 text-left text-[9px] font-semibold shadow-sm hover:shadow disabled:cursor-default ${theme.card}`}>
                   {format(new Date(item.startsAt), "HH:mm")} · {item.patientName}
                 </button>;
               })}
@@ -727,8 +736,10 @@ export function CalendarPage() {
             <time className={`text-sm font-extrabold ${theme.accent}`}>{format(new Date(item.startsAt), "EEE d MMM", { locale: dateLocale })}<small className="mt-1 block text-[10px] text-slate-500">{format(new Date(item.startsAt), "HH:mm")}</small></time>
             <div><strong className="text-sm text-slate-900">{item.patientName}</strong><p className="mt-1 text-xs text-slate-500">{item.treatmentType || item.reason || text("Consultation", "استشارة")}</p><span className={`mt-2 inline-flex rounded-full border px-2 py-1 text-[9px] font-bold uppercase ${style.badge}`}>{style.label}</span></div>
             <div className="flex flex-wrap justify-end gap-2">
-              <button type="button" className={secondaryButtonClass} disabled={closedStatuses.has(item.status)} onClick={() => edit(item)}><Pencil size={14}/>{text("Modifier", "تعديل")}</button>
-              <button type="button" className={`${secondaryButtonClass} text-rose-700`} disabled={!canCancelAppointment(item)} onClick={() => requestCancellation(item)}><XCircle size={14}/>{text("Annuler", "إلغاء")}</button>
+              <button type="button" className={secondaryButtonClass} disabled={!canEditAppointment(item)} onClick={() => edit(item)}><Pencil size={14}/>{text("Modifier", "تعديل")}</button>
+              {canCancelAppointment(item) && (
+                <button type="button" className={`${secondaryButtonClass} text-rose-700`} onClick={() => requestCancellation(item)}><XCircle size={14}/>{text("Annuler", "إلغاء")}</button>
+              )}
             </div>
           </article>;
         })}
@@ -1007,6 +1018,7 @@ export function CalendarPage() {
                         daily.map((item) => {
                           const status = getStatusStyle(item.status, isArabic);
                           const isClosed = closedStatuses.has(item.status);
+                          const canEdit = canEditAppointment(item);
                           const pending = actionPendingId === item.id;
 
                           return (
@@ -1019,7 +1031,7 @@ export function CalendarPage() {
                               <button
                                 type="button"
                                 className="block w-full text-left disabled:cursor-default"
-                                disabled={isClosed}
+                                disabled={!canEdit}
                                 onClick={() => edit(item)}
                               >
                                 <div className="flex items-start justify-between gap-2">
@@ -1067,7 +1079,7 @@ export function CalendarPage() {
                                     className="inline-flex size-8 items-center justify-center rounded-lg bg-slate-50 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700 disabled:opacity-40"
                                     title={text("Modifier le rendez-vous", "تعديل الموعد")}
                                     aria-label={text(`Modifier le rendez-vous de ${item.patientName}`, `تعديل موعد ${item.patientName}`)}
-                                    disabled={pending}
+                                    disabled={pending || !canEdit}
                                     onClick={() => edit(item)}
                                   >
                                     <Pencil size={14} />
@@ -1089,16 +1101,18 @@ export function CalendarPage() {
                                         )}
                                       </button>
                                     )}
-                                  <button
-                                    type="button"
-                                    className="ml-auto inline-flex size-8 items-center justify-center rounded-lg bg-slate-50 text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
-                                    title={text("Annuler le rendez-vous", "إلغاء الموعد")}
-                                    aria-label={text(`Annuler le rendez-vous de ${item.patientName}`, `إلغاء موعد ${item.patientName}`)}
-                                    disabled={pending}
-                                    onClick={() => requestCancellation(item)}
-                                  >
-                                    <XCircle size={14} />
-                                  </button>
+                                  {canCancelAppointment(item) && (
+                                    <button
+                                      type="button"
+                                      className="ml-auto inline-flex size-8 items-center justify-center rounded-lg bg-slate-50 text-slate-500 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-40"
+                                      title={text("Annuler le rendez-vous", "إلغاء الموعد")}
+                                      aria-label={text(`Annuler le rendez-vous de ${item.patientName}`, `إلغاء موعد ${item.patientName}`)}
+                                      disabled={pending}
+                                      onClick={() => requestCancellation(item)}
+                                    >
+                                      <XCircle size={14} />
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </div>
