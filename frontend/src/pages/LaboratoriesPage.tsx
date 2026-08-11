@@ -1,6 +1,6 @@
 ﻿import { ui } from "../styles";
-import { ChevronLeft, ChevronRight, FlaskConical, MapPin, Pencil, Phone, Plus, Search, Trash2, X } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, FlaskConical, MapPin, Pencil, Phone, Plus, Search, Trash2, X } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { EmptyState } from "../components/EmptyState";
 import { useLanguage } from "../i18n/LanguageContext";
 import { api } from "../services/api";
@@ -65,9 +65,14 @@ export function LaboratoriesPage() {
         maximumFractionDigits: 2
     });
     const dateFormatter = new Intl.DateTimeFormat(locale, { dateStyle: "medium" });
+    const monthFormatter = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" });
     const formatDate = (value?: string) => value
         ? dateFormatter.format(new Date(`${value.slice(0, 10)}T12:00:00`))
         : "—";
+    const formatMonth = (value: string) => {
+        const [year, month] = value.split("-").map(Number);
+        return year && month ? monthFormatter.format(new Date(year, month - 1, 1)) : value;
+    };
     const jobTypeLabel = (jobType: string) => ({
         COURONNE: text("Couronne", "تاج"),
         "Obturation composite": text("Obturation composite", "حشوة كومبوزيت"),
@@ -89,6 +94,7 @@ export function LaboratoriesPage() {
     const [dialog, setDialog] = useState<Dialog>(null);
     const [feedback, setFeedback] = useState("");
     const [feedbackIsError, setFeedbackIsError] = useState(false);
+    const [jobMonth, setJobMonth] = useState("");
     const [labQuery, setLabQuery] = useState("");
     const [labPage, setLabPage] = useState(1);
     const [jobPage, setJobPage] = useState(1);
@@ -99,13 +105,18 @@ export function LaboratoriesPage() {
     const [editingLab, setEditingLab] = useState<Laboratory | null>(null);
     const [editingJob, setEditingJob] = useState<LaboratoryJob | null>(null);
 
+    const jobMonthOptions = useMemo(() => Array.from(new Set(
+        jobs.map((item) => item.expectedDate?.slice(0, 7)).filter(Boolean) as string[]
+    )).sort(), [jobs]);
     const normalizedLabQuery = labQuery.trim().toLocaleLowerCase(locale);
     const filteredLabs = normalizedLabQuery
         ? labs.filter((item) => [item.name, item.managerName, item.phone, item.city]
             .filter(Boolean)
             .some((value) => value!.toLocaleLowerCase(locale).includes(normalizedLabQuery)))
         : labs;
-    const filteredJobs = jobs;
+    const filteredJobs = jobMonth
+        ? jobs.filter((item) => item.expectedDate?.startsWith(jobMonth))
+        : jobs;
     const labPageCount = Math.max(1, Math.ceil(filteredLabs.length / labPageSize));
     const currentLabPage = Math.min(labPage, labPageCount);
     const paginatedLabs = filteredLabs.slice(
@@ -146,7 +157,7 @@ export function LaboratoriesPage() {
 
     useEffect(() => {
         setJobPage(1);
-    }, [jobPageSize]);
+    }, [jobMonth, jobPageSize]);
 
     useEffect(() => {
         setLabPage(1);
@@ -353,6 +364,25 @@ export function LaboratoriesPage() {
         </button>
       </div>
       </div>
+
+      {tab === "jobs" && <div className="mb-4 mt-3 flex justify-center">
+        <label className="flex w-full max-w-2xl items-center gap-4 rounded-2xl border border-teal-100 bg-gradient-to-r from-teal-50 to-white px-5 py-3 shadow-sm max-[700px]:flex-col max-[700px]:items-stretch">
+          <span className="flex min-w-fit items-center gap-2 text-sm font-semibold text-slate-700">
+            <span className="grid size-9 place-items-center rounded-xl bg-white text-teal-600 shadow-sm">
+              <CalendarDays className="size-4"/>
+            </span>
+            {text("Filtrer par mois prévu", "التصفية حسب شهر التسليم")}
+          </span>
+          <select
+            className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 outline-none transition focus:border-teal-500 focus:ring-2 focus:ring-teal-100"
+            value={jobMonth}
+            onChange={(event) => setJobMonth(event.target.value)}
+          >
+            <option value="">{text("Tous les mois", "كل الأشهر")}</option>
+            {jobMonthOptions.map((month) => <option key={month} value={month}>{formatMonth(month)}</option>)}
+          </select>
+        </label>
+      </div>}
 
       {tab === "laboratories" && <section className={`${ui("panel")} flex min-h-[calc(100vh-300px)] flex-col`}>
             <div className="mb-4 flex flex-wrap items-center justify-end gap-3">
