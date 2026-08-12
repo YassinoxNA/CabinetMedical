@@ -31,6 +31,8 @@ public class DashboardService {
     @Transactional(readOnly = true)
     public DashboardStatsResponse statistics() {
         LocalDate today = LocalDate.now(CABINET_ZONE);
+        LocalDate yesterday = today.minusDays(1);
+        Instant yesterdayStart = yesterday.atStartOfDay(CABINET_ZONE).toInstant();
         Instant todayStart = today.atStartOfDay(CABINET_ZONE).toInstant();
         Instant tomorrowStart = today.plusDays(1).atStartOfDay(CABINET_ZONE).toInstant();
         LocalDate monthStartDate = today.withDayOfMonth(1);
@@ -46,8 +48,16 @@ public class DashboardService {
                           and created_at >= ? and created_at < ?
                         """,
                         monthStart, nextMonthStart),
+                activePatients(yesterdayStart, todayStart),
                 activePatients(todayStart, tomorrowStart),
                 activePatients(monthStart, nextMonthStart),
+                count("""
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ?
+                        """,
+                        yesterdayStart, todayStart),
                 count("""
                         select count(*) from appointments a
                         join patients p on p.id = a.patient_id
@@ -86,6 +96,12 @@ public class DashboardService {
                         join patients p on p.id = c.patient_id
                         where p.deleted_at is null and p.archived_at is null
                           and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
+                        """, yesterdayStart, todayStart),
+                count("""
+                        select count(*) from consultations c
+                        join patients p on p.id = c.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
                         """, todayStart, tomorrowStart),
                 count("""
                         select count(*) from consultations c
@@ -98,6 +114,12 @@ public class DashboardService {
                         join patients p on p.id = i.patient_id
                         where p.deleted_at is null and p.archived_at is null
                           and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
+                        """, yesterday, today),
+                amount("""
+                        select coalesce(sum(i.total_amount), 0) from patient_invoices i
+                        join patients p on p.id = i.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
                         """, today, today.plusDays(1)),
                 amount("""
                         select coalesce(sum(i.total_amount), 0) from patient_invoices i
@@ -105,6 +127,12 @@ public class DashboardService {
                         where p.deleted_at is null and p.archived_at is null
                           and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
                         """, monthStartDate, monthStartDate.plusMonths(1)),
+                amount("""
+                        select coalesce(sum(pp.amount), 0) from patient_payments pp
+                        join patients p on p.id = pp.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and pp.cancelled_at is null and pp.payment_date >= ? and pp.payment_date < ?
+                        """, yesterdayStart, todayStart),
                 amount("""
                         select coalesce(sum(pp.amount), 0) from patient_payments pp
                         join patients p on p.id = pp.patient_id
