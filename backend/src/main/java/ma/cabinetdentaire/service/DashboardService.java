@@ -46,6 +46,8 @@ public class DashboardService {
                           and created_at >= ? and created_at < ?
                         """,
                         monthStart, nextMonthStart),
+                activePatients(todayStart, tomorrowStart),
+                activePatients(monthStart, nextMonthStart),
                 count("""
                         select count(*) from appointments a
                         join patients p on p.id = a.patient_id
@@ -53,6 +55,13 @@ public class DashboardService {
                           and a.starts_at >= ? and a.starts_at < ?
                         """,
                         todayStart, tomorrowStart),
+                count("""
+                        select count(*) from appointments a
+                        join patients p on p.id = a.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and a.starts_at >= ? and a.starts_at < ?
+                        """,
+                        monthStart, nextMonthStart),
                 count("""
                         select count(*) from appointments a
                         join patients p on p.id = a.patient_id
@@ -77,13 +86,31 @@ public class DashboardService {
                         join patients p on p.id = c.patient_id
                         where p.deleted_at is null and p.archived_at is null
                           and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
+                        """, todayStart, tomorrowStart),
+                count("""
+                        select count(*) from consultations c
+                        join patients p on p.id = c.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
                         """, monthStart, nextMonthStart),
                 amount("""
                         select coalesce(sum(i.total_amount), 0) from patient_invoices i
                         join patients p on p.id = i.patient_id
                         where p.deleted_at is null and p.archived_at is null
                           and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
+                        """, today, today.plusDays(1)),
+                amount("""
+                        select coalesce(sum(i.total_amount), 0) from patient_invoices i
+                        join patients p on p.id = i.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and i.invoice_date >= ? and i.invoice_date < ? and i.status <> 'ANNULEE'
                         """, monthStartDate, monthStartDate.plusMonths(1)),
+                amount("""
+                        select coalesce(sum(pp.amount), 0) from patient_payments pp
+                        join patients p on p.id = pp.patient_id
+                        where p.deleted_at is null and p.archived_at is null
+                          and pp.cancelled_at is null and pp.payment_date >= ? and pp.payment_date < ?
+                        """, todayStart, tomorrowStart),
                 amount("""
                         select coalesce(sum(pp.amount), 0) from patient_payments pp
                         join patients p on p.id = pp.patient_id
@@ -106,6 +133,25 @@ public class DashboardService {
                 consultationsByCategory(monthStart, nextMonthStart),
                 collectionsLast6Months(monthStartDate)
         );
+    }
+
+    private long activePatients(Instant from, Instant to) {
+        return count("""
+                select count(*) from (
+                    select a.patient_id
+                    from appointments a
+                    join patients p on p.id = a.patient_id
+                    where p.deleted_at is null and p.archived_at is null
+                      and a.status in ('PATIENT_ARRIVE','EN_CONSULTATION','TERMINE')
+                      and a.starts_at >= ? and a.starts_at < ?
+                    union
+                    select c.patient_id
+                    from consultations c
+                    join patients p on p.id = c.patient_id
+                    where p.deleted_at is null and p.archived_at is null
+                      and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
+                ) active_patients
+                """, from, to, from, to);
     }
 
     private List<DashboardStatsResponse.WeeklyPatients> newPatientsByWeek(

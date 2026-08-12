@@ -35,12 +35,18 @@ interface DashboardStats {
   generatedAt: string;
   totalPatients: number;
   newPatientsThisMonth: number;
+  activePatientsToday: number;
+  activePatientsThisMonth: number;
   appointmentsToday: number;
+  appointmentsThisMonth: number;
   appointmentsPlannedToday: number;
   appointmentsCompletedToday: number;
   appointmentsCancelledToday: number;
+  consultationsToday: number;
   consultationsThisMonth: number;
+  billedToday: number;
   billedThisMonth: number;
+  collectedToday: number;
   collectedThisMonth: number;
   outstandingTotal: number;
   laboratoryJobsInProgress: number;
@@ -57,6 +63,7 @@ export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [todayAppointments, setTodayAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [kpiPeriod, setKpiPeriod] = useState<"today" | "month">("today");
 
   const money = useMemo(() => new Intl.NumberFormat(locale, {
     style: "currency", currency: "MAD", minimumFractionDigits: 0, maximumFractionDigits: 0
@@ -94,6 +101,15 @@ export function DashboardPage() {
   const collectionRate = stats?.billedThisMonth
     ? Math.min(100, Math.round(stats.collectedThisMonth / stats.billedThisMonth * 100))
     : 0;
+  const isToday = kpiPeriod === "today";
+  const periodPatients = isToday ? stats?.activePatientsToday : stats?.activePatientsThisMonth;
+  const periodAppointments = isToday ? stats?.appointmentsToday : stats?.appointmentsThisMonth;
+  const periodConsultations = isToday ? stats?.consultationsToday : stats?.consultationsThisMonth;
+  const periodBilled = isToday ? stats?.billedToday : stats?.billedThisMonth;
+  const periodCollected = isToday ? stats?.collectedToday : stats?.collectedThisMonth;
+  const periodCollectionRate = periodBilled
+    ? Math.min(100, Math.round((periodCollected ?? 0) / periodBilled * 100))
+    : 0;
   const arrivedToday = todayAppointments.filter((item) =>
     ["PATIENT_ARRIVE", "EN_CONSULTATION"].includes(item.status)).length;
   const upcoming = todayAppointments
@@ -125,15 +141,23 @@ export function DashboardPage() {
       </button>
     </header>
 
-    <section className="grid grid-cols-4 gap-4 max-[1100px]:grid-cols-2 max-[650px]:grid-cols-1">
-      <Kpi icon={UsersRound} tone="blue" label={text("Patients actifs", "المرضى النشطون")}
-           value={stats?.totalPatients ?? 0} detail={text(`+${stats?.newPatientsThisMonth ?? 0} ce mois`, `+${stats?.newPatientsThisMonth ?? 0} هذا الشهر`)}/>
-      <Kpi icon={CalendarDays} tone="emerald" label={text("Rendez-vous aujourd’hui", "مواعيد اليوم")}
-           value={stats?.appointmentsToday ?? 0} detail={text(`${stats?.appointmentsPlannedToday ?? 0} à venir`, `${stats?.appointmentsPlannedToday ?? 0} قادمة`)}/>
-      <Kpi icon={Stethoscope} tone="violet" label={text("Consultations du mois", "استشارات الشهر")}
-           value={stats?.consultationsThisMonth ?? 0} detail={text("Activité médicale réelle", "النشاط الطبي الفعلي")}/>
-      <Kpi icon={WalletCards} tone="amber" label={text("Encaissements du mois", "مداخيل الشهر")}
-           value={money.format(stats?.collectedThisMonth ?? 0)} detail={text(`${collectionRate}% encaissé`, `تم تحصيل ${collectionRate}%`)}/>
+    <section className="space-y-3">
+      <div className="flex justify-end">
+        <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="group" aria-label={text("Période des indicateurs", "فترة المؤشرات")}>
+          <button type="button" onClick={() => setKpiPeriod("today")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${isToday ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Aujourd’hui", "اليوم")}</button>
+          <button type="button" onClick={() => setKpiPeriod("month")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${!isToday ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Ce mois", "هذا الشهر")}</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-4 gap-4 max-[1100px]:grid-cols-2 max-[650px]:grid-cols-1">
+        <Kpi icon={UsersRound} tone="blue" label={text(isToday ? "Patients actifs aujourd’hui" : "Patients actifs ce mois", isToday ? "المرضى النشطون اليوم" : "المرضى النشطون هذا الشهر")}
+             value={periodPatients ?? 0} detail={text(isToday ? "Arrivés ou consultés aujourd’hui" : "Patients distincts avec activité", isToday ? "حضروا أو تمت استشارتهم اليوم" : "مرضى مختلفون لديهم نشاط")}/>
+        <Kpi icon={CalendarDays} tone="emerald" label={text(isToday ? "Rendez-vous aujourd’hui" : "Rendez-vous du mois", isToday ? "مواعيد اليوم" : "مواعيد الشهر")}
+             value={periodAppointments ?? 0} detail={isToday ? text(`${stats?.appointmentsPlannedToday ?? 0} à venir`, `${stats?.appointmentsPlannedToday ?? 0} قادمة`) : text("Tous les rendez-vous du mois", "جميع مواعيد الشهر")}/>
+        <Kpi icon={Stethoscope} tone="violet" label={text(isToday ? "Consultations aujourd’hui" : "Consultations du mois", isToday ? "استشارات اليوم" : "استشارات الشهر")}
+             value={periodConsultations ?? 0} detail={text("Activité médicale réelle", "النشاط الطبي الفعلي")}/>
+        <Kpi icon={WalletCards} tone="amber" label={text(isToday ? "Encaissements aujourd’hui" : "Encaissements du mois", isToday ? "مداخيل اليوم" : "مداخيل الشهر")}
+             value={money.format(periodCollected ?? 0)} detail={text(`${periodCollectionRate}% encaissé`, `تم تحصيل ${periodCollectionRate}%`)}/>
+      </div>
     </section>
 
     <section className="grid grid-cols-[1.45fr_1fr] gap-4 max-[1050px]:grid-cols-1">
