@@ -166,6 +166,11 @@ public class DashboardService {
     private long activePatients(Instant from, Instant to) {
         return count("""
                 select count(*) from (
+                    select p.id as patient_id
+                    from patients p
+                    where p.deleted_at is null and p.archived_at is null
+                      and p.created_at >= ? and p.created_at < ?
+                    union
                     select a.patient_id
                     from appointments a
                     join patients p on p.id = a.patient_id
@@ -179,7 +184,7 @@ public class DashboardService {
                     where p.deleted_at is null and p.archived_at is null
                       and c.deleted_at is null and c.consultation_at >= ? and c.consultation_at < ?
                 ) active_patients
-                """, from, to, from, to);
+                """, from, to, from, to, from, to);
     }
 
     private List<DashboardStatsResponse.WeeklyPatients> newPatientsByWeek(

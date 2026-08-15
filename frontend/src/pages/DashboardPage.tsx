@@ -95,15 +95,31 @@ export function DashboardPage() {
       setStats(null);
       setTodayAppointments([]);
     }
-  }, [text]);
+  }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    void load();
+
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    const interval = window.setInterval(refreshWhenVisible, 5_000);
+    window.addEventListener("focus", refreshWhenVisible);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshWhenVisible);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [load]);
 
   const collectionRate = stats?.billedThisMonth
     ? Math.min(100, Math.round(stats.collectedThisMonth / stats.billedThisMonth * 100))
     : 0;
   const isToday = kpiPeriod === "today";
   const isYesterday = kpiPeriod === "yesterday";
+  const isMonth = kpiPeriod === "month";
   const periodPatients = isYesterday ? stats?.activePatientsYesterday : isToday ? stats?.activePatientsToday : stats?.activePatientsThisMonth;
   const periodAppointments = isYesterday ? stats?.appointmentsYesterday : isToday ? stats?.appointmentsToday : stats?.appointmentsThisMonth;
   const periodConsultations = isYesterday ? stats?.consultationsYesterday : isToday ? stats?.consultationsToday : stats?.consultationsThisMonth;
@@ -126,7 +142,7 @@ export function DashboardPage() {
         <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm" role="group" aria-label={text("Période des indicateurs", "فترة المؤشرات")}>
           <button type="button" onClick={() => setKpiPeriod("yesterday")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${isYesterday ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Hier", "أمس")}</button>
           <button type="button" onClick={() => setKpiPeriod("today")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${isToday ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Aujourd’hui", "اليوم")}</button>
-          <button type="button" onClick={() => setKpiPeriod("month")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${!isToday ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Ce mois", "هذا الشهر")}</button>
+          <button type="button" onClick={() => setKpiPeriod("month")} className={`h-9 rounded-lg px-4 text-xs font-bold transition ${isMonth ? "bg-teal-600 text-white shadow-sm" : "text-slate-500 hover:bg-slate-50"}`}>{text("Ce mois", "هذا الشهر")}</button>
         </div>
       </div>
       <div className="grid grid-cols-4 gap-4 max-[1100px]:grid-cols-2 max-[650px]:grid-cols-1">
